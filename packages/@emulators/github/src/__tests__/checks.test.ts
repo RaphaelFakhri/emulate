@@ -156,6 +156,120 @@ describe("GitHub checks routes", () => {
     });
     expect(missingSuites.status).toBe(404);
   });
+
+  it("paginates all check runs in descending order with navigable links", async () => {
+    const repoUrl = `${base}/repos/octocat/hello-world`;
+    const commits = await app.request(`${repoUrl}/commits`, { headers: authHeaders() });
+    const [head] = (await commits.json()) as Array<{ sha: string }>;
+    const ids: number[] = [];
+    for (let i = 0; i < 3; i++) {
+      const created = await app.request(`${repoUrl}/check-runs`, {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ name: "CI", head_sha: head.sha }),
+      });
+      expect(created.status).toBe(201);
+      ids.unshift(((await created.json()) as { id: number }).id);
+    }
+
+    const listUrl = `${repoUrl}/commits/${head.sha}/check-runs?filter=all&per_page=1`;
+    for (const [index, id] of ids.entries()) {
+      const page = index + 1;
+      const response = await app.request(`${listUrl}&page=${page}`, { headers: authHeaders() });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ total_count: 3, check_runs: [{ id }] });
+      const link = response.headers.get("Link");
+      if (page < 3) {
+        expect(link).toContain(`<${listUrl}&page=${page + 1}>; rel="next"`);
+        expect(link).toContain(`<${listUrl}&page=3>; rel="last"`);
+      } else {
+        expect(link).not.toContain('rel="next"');
+      }
+      if (page > 1) {
+        expect(link).toContain(`<${listUrl}&page=1>; rel="first"`);
+        expect(link).toContain(`<${listUrl}&page=${page - 1}>; rel="prev"`);
+      } else {
+        expect(link).not.toContain('rel="prev"');
+      }
+    }
+    const beyondLast = await app.request(`${listUrl}&page=4`, { headers: authHeaders() });
+    expect(await beyondLast.json()).toEqual({ total_count: 3, check_runs: [] });
+  });
+
+  it("applies name and status filters before counting and paginating", async () => {
+    const repoUrl = `${base}/repos/octocat/hello-world`;
+    const commits = await app.request(`${repoUrl}/commits`, { headers: authHeaders() });
+    const [head] = (await commits.json()) as Array<{ sha: string }>;
+    const ids: number[] = [];
+    for (const body of [
+      { name: "Build CI", status: "completed", conclusion: "success" },
+      { name: "Build CI", status: "completed", conclusion: "failure" },
+      { name: "Build CI", status: "queued" },
+      { name: "Lint", status: "completed", conclusion: "success" },
+    ]) {
+      const created = await app.request(`${repoUrl}/check-runs`, {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ head_sha: head.sha, ...body }),
+      });
+      expect(created.status).toBe(201);
+      ids.push(((await created.json()) as { id: number }).id);
+    }
+
+    const first = await app.request(
+      `${repoUrl}/commits/main/check-runs?check_name=Build%20CI&status=completed&filter=all&per_page=1`,
+      { headers: authHeaders() },
+    );
+    expect(await first.json()).toMatchObject({ total_count: 2, check_runs: [{ id: ids[1] }] });
+    const nextUrl = first.headers.get("Link")?.match(/<([^>]+)>; rel="next"/)?.[1];
+    expect(nextUrl).toBeDefined();
+    expect(Object.fromEntries(new URL(nextUrl!).searchParams)).toEqual({
+      check_name: "Build CI",
+      status: "completed",
+      filter: "all",
+      per_page: "1",
+      page: "2",
+    });
+    const second = await app.request(nextUrl!, { headers: authHeaders() });
+    expect(second.status).toBe(200);
+    expect(await second.json()).toMatchObject({ total_count: 2, check_runs: [{ id: ids[0] }] });
+    expect(second.headers.get("Link")).not.toContain('rel="next"');
+
+    const empty = await app.request(`${repoUrl}/commits/main/check-runs?check_name=missing&filter=all&per_page=1`, {
+      headers: authHeaders(),
+    });
+    expect(await empty.json()).toEqual({ total_count: 0, check_runs: [] });
+    expect(empty.headers.get("Link")).toBeNull();
+  });
+
+  it("uses the shared default page size and caps per_page at 100", async () => {
+    const repoUrl = `${base}/repos/octocat/hello-world`;
+    const commits = await app.request(`${repoUrl}/commits`, { headers: authHeaders() });
+    const [head] = (await commits.json()) as Array<{ sha: string }>;
+    for (let i = 0; i < 101; i++) {
+      const created = await app.request(`${repoUrl}/check-runs`, {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ name: "CI", head_sha: head.sha }),
+      });
+      expect(created.status).toBe(201);
+    }
+
+    for (const [query, size] of [
+      ["", 30],
+      ["&per_page=200", 100],
+    ] as const) {
+      const response = await app.request(`${repoUrl}/commits/main/check-runs?filter=all${query}`, {
+        headers: authHeaders(),
+      });
+      const body = (await response.json()) as { total_count: number; check_runs: unknown[] };
+      expect(body.total_count).toBe(101);
+      expect(body.check_runs).toHaveLength(size);
+      const nextUrl = response.headers.get("Link")?.match(/<([^>]+)>; rel="next"/)?.[1];
+      expect(nextUrl).toBeDefined();
+      expect(new URL(nextUrl!).searchParams.get("per_page")).toBe(String(size));
+    }
+  });
 });
 
 type CheckApp = { id: number; slug: string; name: string } | null;
@@ -297,6 +411,21 @@ describe("GitHub checks App attribution", () => {
         { id: latestA.id, app: appA },
       ],
     });
+  });
+
+  it.each(["", "&filter=latest"])("groups latest runs per App before paginating (%s)", async (filter) => {
+    await createRun(tokenA);
+    const latestA = await createRun(tokenA);
+    const latestB = await createRun(tokenB);
+    for (const [index, run] of [latestB, latestA].entries()) {
+      const response = await get(`/commits/main/check-runs?per_page=1&page=${index + 1}${filter}`);
+      expect(await response.json()).toMatchObject({
+        total_count: 2,
+        check_runs: [{ id: run.id, app: run.app }],
+      });
+    }
+    const beyondLast = await get(`/commits/main/check-runs?per_page=1&page=3${filter}`);
+    expect(await beyondLast.json()).toEqual({ total_count: 2, check_runs: [] });
   });
 
   it("keeps App identity through updates, commit changes, and rerequests", async () => {

@@ -950,6 +950,8 @@ Every endpoint below is fully stateful. Creates, updates, and deletes persist in
 - Check suites: create, get, preferences, rerequest, list by ref. Ref based lookups accept branch and tag refs containing slashes.
 - Automatic suite status rollup from check run results
 
+Check-run lists by ref and suite support `page` and `per_page` (default 30, maximum 100) with pagination `Link` headers. Ref lists apply `check_name`, `status`, and `filter` before pagination; `total_count` reports the full filtered count.
+
 Checks created with installation tokens include their GitHub App in API responses and webhooks. Suites are separated by App and commit, and `filter=latest` keeps the newest run for each App and check name. User-token checks return `app: null`; request-body `app_id` cannot set or change attribution.
 
 ### Misc

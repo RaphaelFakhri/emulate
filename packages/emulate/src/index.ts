@@ -58,6 +58,8 @@ GitHub API coverage:
   Includes repository contents, raw downloads, raw media negotiation for file Contents and README responses,
   commit history, commit details, ref comparisons, organization membership seeding with member/admin roles,
   and Checks list-by-ref endpoints for branch and tag refs containing slashes.
+  Check-run lists paginate with page/per_page (default 30, maximum 100) and Link headers.
+  Ref lists filter before pagination; total_count includes all filtered runs.
   Checks retain the authenticated installation's App in API responses and webhooks.
   Suites are separated by App and commit; latest runs are grouped by App and check name.
   User-token checks return app: null; request-body app_id cannot change attribution.
