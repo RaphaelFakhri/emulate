@@ -74,12 +74,37 @@ npm install @emulators/slack
 - `POST /api/views.push` — push a modal view onto the current modal stack
 - `POST /api/views.generateTriggerId` — local helper for tests that need a modal trigger id
 
-Modal opens and pushes require values from `/api/views.generateTriggerId`. Pass the returned value as `trigger_id` or `interactivity_pointer`; generate push values with an existing `view_id` and use them within 3 seconds.
+Modal opens and pushes accept `trigger_id` or `interactivity_pointer` from an interaction payload or `/api/views.generateTriggerId`. Generate push values with an existing `view_id`. Triggers expire after 3 seconds by default; set `slack.view_trigger_ttl_seconds` to a positive number to allow more time in local tests.
 
 ### Team, Bots & Webhooks
 - `POST /api/team.info` — workspace info
 - `POST /api/bots.info` — bot info
 - `POST /services/:teamId/:botId/:webhookId` — incoming webhook with text or rich payload fields
+
+### Interactivity
+
+Buttons and modal submissions can invoke your app's Interactivity Request URL. Configure `interactivity_url` on a seeded `slack.oauth_apps` entry and set `slack.signing_secret` to the same secret used by your receiver:
+
+```yaml
+slack:
+  signing_secret: local-signing-secret
+  oauth_apps:
+    - app_id: A_MY_APP
+      client_id: my-client
+      client_secret: my-secret
+      name: My App
+      redirect_uris: []
+      interactivity_url: http://localhost:3000/slack/interactions
+```
+
+- `POST /_slack/simulate/block-actions` accepts `channel`, `message_ts`, and a button selector (`action_id`, exact `text`, or `url`), plus the acting `user` ID or name. It supports buttons in actions blocks and section accessories, including ephemeral messages visible to that user. The simulator requires an authenticated emulator token and the acting user must belong to the conversation.
+- `POST /_slack/simulate/view-submission` accepts `view_id`, optional `user`, and `values` keyed by input block ID. Text inputs take strings; static selects and radio buttons take an option value; multi-selects and checkboxes take arrays of option values. Omitted values retain previous input or initial values. Other input elements return `unsupported_element`.
+
+Callbacks are `application/x-www-form-urlencoded` with one `payload` JSON field, signed over the exact encoded request body. Button payloads include an app-bound, single-use `trigger_id` that can open a modal for the acting user. App ownership is preserved for messages posted with an app's bot or user token. Simulators return the payload and `delivery_id`; attempts and delivery results are saved in `slack.interaction_deliveries`.
+
+A button payload's `response_url` accepts JSON without a bearer token, up to five times within 30 minutes. It posts an ephemeral reply by default, or a public reply with `response_type: "in_channel"`. Use `replace_original: true` or `delete_original: true` to modify the source message. Replacement retains the source message's visibility. Rich blocks and thread replies are supported.
+
+A modal receiver must acknowledge within three seconds. An empty HTTP 200 closes the submitted view, while `response_action: "clear"` closes its stack. `errors` retains the view and returns block errors; `update` replaces its contents; `push` adds a new view subject to the three-view limit. Delivery failures and invalid acknowledgements leave the modal open. Shortcuts, slash commands, non-button actions, `view_closed`, and `block_suggestion` are not simulated.
 
 ### OAuth
 - `GET /oauth/v2/authorize` — authorization (shows user picker)
@@ -99,7 +124,7 @@ All Web API endpoints require `Authorization: Bearer <token>`. Seeded OAuth apps
 
 ## Current Limits
 
-Slack Connect, Enterprise Grid admin APIs, Audit Logs API, SCIM, Legal Holds, Socket Mode, slash command and interaction simulation, user groups, reminders, stars, calls, canvases, lists, functions, workflows, chat streaming, legacy `files.upload`, exact rate limiting, and paid-plan behavior are not implemented.
+Slack Connect, Enterprise Grid admin APIs, Audit Logs API, SCIM, Legal Holds, Socket Mode, slash commands, shortcuts, and interaction types other than button actions and modal submissions, user groups, reminders, stars, calls, canvases, lists, functions, workflows, chat streaming, legacy `files.upload`, exact rate limiting, and paid-plan behavior are not implemented.
 
 ## Seed Configuration
 

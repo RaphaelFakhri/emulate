@@ -552,7 +552,7 @@ curl -X POST http://localhost:4003/api/views.generateTriggerId \
   -H "Content-Type: application/json" \
   -d '{"user_id": "U000000001"}'
 
-# Open a modal view with the returned trigger_id or interactivity_pointer within 3 seconds
+# Open a modal view with the returned trigger_id or interactivity_pointer before it expires
 curl -X POST http://localhost:4003/api/views.open \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
@@ -636,6 +636,31 @@ curl -X POST http://localhost:4003/services/T000000001/B000000001/X000000001 \
   -d '{"text": "Thread update", "thread_ts": "1234567890.123456"}'
 ```
 
+### Interactivity
+
+Buttons and modal submissions can invoke your app's Interactivity Request URL. Configure `interactivity_url` on a seeded `slack.oauth_apps` entry and set `slack.signing_secret` to the same secret used by your receiver:
+
+```yaml
+slack:
+  signing_secret: local-signing-secret
+  oauth_apps:
+    - app_id: A_MY_APP
+      client_id: my-client
+      client_secret: my-secret
+      name: My App
+      redirect_uris: []
+      interactivity_url: http://localhost:3000/slack/interactions
+```
+
+- `POST /_slack/simulate/block-actions` accepts `channel`, `message_ts`, and a button selector (`action_id`, exact `text`, or `url`), plus the acting `user` ID or name. It supports buttons in actions blocks and section accessories, including ephemeral messages visible to that user. The simulator requires an authenticated emulator token and the acting user must belong to the conversation.
+- `POST /_slack/simulate/view-submission` accepts `view_id`, optional `user`, and `values` keyed by input block ID. Text inputs take strings; static selects and radio buttons take an option value; multi-selects and checkboxes take arrays of option values. Omitted values retain previous input or initial values. Other input elements return `unsupported_element`.
+
+Callbacks are `application/x-www-form-urlencoded` with one `payload` JSON field, signed over the exact encoded request body. Button payloads include an app-bound, single-use `trigger_id` that can open a modal for the acting user. Triggers expire after three seconds by default; set `slack.view_trigger_ttl_seconds` to a positive number to allow more time in local tests. App ownership is preserved for messages posted with an app's bot or user token. Simulators return the payload and `delivery_id`; attempts and delivery results are saved in `slack.interaction_deliveries`.
+
+A button payload's `response_url` accepts JSON without a bearer token, up to five times within 30 minutes. It posts an ephemeral reply by default, or a public reply with `response_type: "in_channel"`. Use `replace_original: true` or `delete_original: true` to modify the source message. Replacement retains the source message's visibility. Rich blocks and thread replies are supported.
+
+A modal receiver must acknowledge within three seconds. An empty HTTP 200 closes the submitted view, while `response_action: "clear"` closes its stack. `errors` retains the view and returns block errors; `update` replaces its contents; `push` adds a new view subject to the three-view limit. Delivery failures and invalid acknowledgements leave the modal open. Shortcuts, slash commands, non-button actions, `view_closed`, and `block_suggestion` are not simulated.
+
 ### OAuth
 
 ```bash
@@ -699,7 +724,7 @@ When `slack.signing_secret` is configured, every existing outbound event subscri
 
 ## Current Limits
 
-Slack Connect, Enterprise Grid admin APIs, Audit Logs API, SCIM, Legal Holds, Socket Mode, slash command and interaction simulation, user groups, reminders, stars, calls, canvases, lists, functions, workflows, chat streaming, legacy `files.upload`, exact rate limiting, and paid-plan behavior are not implemented.
+Slack Connect, Enterprise Grid admin APIs, Audit Logs API, SCIM, Legal Holds, Socket Mode, slash commands, shortcuts, and interaction types other than button actions and modal submissions, user groups, reminders, stars, calls, canvases, lists, functions, workflows, chat streaming, legacy `files.upload`, exact rate limiting, and paid-plan behavior are not implemented.
 
 ## Common Patterns
 

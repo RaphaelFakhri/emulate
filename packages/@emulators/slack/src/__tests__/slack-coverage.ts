@@ -559,10 +559,23 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "views",
     method: "views.interaction_simulation",
-    route: "POST /api/views.interactions",
+    route: [
+      "POST /_slack/simulate/block-actions",
+      "POST /_slack/simulate/view-submission",
+      "POST /_slack/response/:id",
+    ],
+    status: "supported",
+    testedBy: ["interactions.test.ts"],
+    notes: "Signed button actions, modal submissions and acknowledgement handling, and expiring response URLs.",
+  },
+  {
+    family: "interactions",
+    method: "interactions.other",
+    route: "N/A",
     status: "not_started",
     testedBy: [],
-    notes: "Future local simulation helpers for slash commands, block actions, shortcuts, and submissions.",
+    notes:
+      "Future simulation support for slash commands, shortcuts, view_closed, block_suggestion, and other interactive elements.",
   },
   {
     family: "usergroups",
