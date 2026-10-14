@@ -545,6 +545,8 @@ curl -X POST http://localhost:4001/repos/octocat/hello-world/check-runs \
 # Automatic suite status rollup from check run results
 ```
 
+Checks created with installation tokens include their GitHub App in API responses and webhooks. Suites are separated by App and commit, and `filter=latest` keeps the newest run for each App and check name. User-token checks return `app: null`; request-body `app_id` cannot set or change attribution.
+
 ### OAuth
 
 ```bash
