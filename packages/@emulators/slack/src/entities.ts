@@ -98,6 +98,15 @@ export interface SlackMessage extends Entity {
   icon_emoji?: string;
   bot_id?: string;
   app_id?: string;
+  bot_profile?: {
+    id: string;
+    app_id?: string;
+    name: string;
+    deleted: boolean;
+    updated: number;
+    team_id: string;
+    icons: { image_36: string; image_48: string; image_72: string };
+  };
   client_msg_id?: string;
   reply_broadcast?: boolean;
   topic?: string;

@@ -672,7 +672,11 @@ Open `GET /` in the Slack emulator to inspect conversations, messages, files, vi
 
 For supported Slack writes that emit events, the emulator dispatches `event_callback` payloads to configured webhook URLs. These payloads match Slack's Events API format:
 
-Each callback includes outer `team_id`, `event_id`, and integer Unix-seconds `event_time` alongside the inner `event`. For authenticated Web API writes, `team_id` comes from the presented Slack token's installation. Development tokens without a stored Slack record fall back to the affected channel, user, or file's team, then the seeded workspace team (or `T000000001`). Incoming webhook posts use their webhook record's team, or the target channel's team when no record matches. Each logical event gets a distinct `event_id` shared by deliveries to multiple subscribers.
+Each callback includes outer `token`, `api_app_id`, `authorizations`, `team_id`, `event_id`, and integer Unix-seconds `event_time` alongside the inner `event`. For authenticated Web API writes, `team_id` comes from the presented Slack token's installation. Development tokens without a stored Slack record fall back to the affected channel, user, or file's team, then the seeded workspace team (or `T000000001`). Incoming webhook posts use their webhook record's team, or the target channel's team when no record matches. Each logical event gets a distinct `event_id` shared by deliveries to multiple subscribers.
+
+Callbacks identify each workspace installation with its recipient `api_app_id` and bot authorization. With multiple installed apps, each receives a separate envelope; configured webhook subscriptions are shared and can route by `api_app_id`. Without an installation, callbacks use `A000000001` and a local user authorization. The legacy `token` field defaults to `emulate-verification-token`; set `slack.verification_token` to match receivers that check it. Use `slack.signing_secret` for request signature verification.
+
+Every inner event includes `event_ts`. Message events include `channel_type` (`channel`, `group`, `im`, or `mpim`). Posts made with an issued or seeded bot token include the bot's `bot_id`, `app_id`, and `bot_profile` when the corresponding bot record exists. These fields persist in history, replies, and updates so handlers can identify their own messages. Removing an installed bot with `conversations.kick` or `conversations.leave` also emits `channel_left` or `group_left`, with `actor_id` and `event_ts`, for the affected app.
 
 To test bot handlers, invite an installed app's `bot_user_id` with `conversations.invite`, subscribe to `app_mention`, then post text containing `<@BOT_USER_ID>` with `chat.postMessage`. Channel mentions produce one callback per mentioned app, with outer `api_app_id`, inner `event_ts`, and the original message and thread identity. DMs and MPIMs use `message` events.
 
@@ -689,6 +693,7 @@ To test bot handlers, invite an installed app's `bot_user_id` with `conversation
 - `channel_rename` / `group_rename` and matching name message subtypes on `conversations.rename`
 - `message` with public `channel_topic` / `channel_purpose` or private `group_topic` / `group_purpose` subtypes on topic and purpose writes
 - `member_joined_channel` / `member_left_channel` on invite, join, leave, and kick writes
+- `channel_left` / `group_left` when an installed bot leaves or is removed
 - `im_created`, `im_open`, `im_close`, `im_marked`, and group open/close/marked events for DM and MPIM writes
 - `user_change` on profile writes
 - `presence_change` on presence writes

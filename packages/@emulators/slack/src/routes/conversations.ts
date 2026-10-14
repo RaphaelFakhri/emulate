@@ -1,6 +1,6 @@
 import type { Context, RouteContext } from "@emulators/core";
 import type { SlackChannel, SlackFile, SlackFileShare, SlackMessage, SlackUser } from "../entities.js";
-import { buildSlackEventEnvelope, resolveSlackEventTeamId } from "../events.js";
+import { dispatchSlackEvent, resolveSlackEventTeamId } from "../events.js";
 import { getSlackStore } from "../store.js";
 import {
   formatSlackMessage,
@@ -76,12 +76,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
     type: string,
     event: Record<string, unknown>,
   ) => {
-    await webhooks.dispatch(
-      type,
-      undefined,
-      buildSlackEventEnvelope(resolveSlackEventTeamId(c, store, channel.team_id), { type, ...event }),
-      "slack",
-    );
+    await dispatchSlackEvent(store, webhooks, resolveSlackEventTeamId(c, store, channel.team_id), { type, ...event });
   };
   const insertAndDispatchMessageEvent = async (
     c: Context,
@@ -101,16 +96,11 @@ export function conversationsRoutes(ctx: RouteContext): void {
       reactions: [],
     });
 
-    await webhooks.dispatch(
-      "message",
-      undefined,
-      buildSlackEventEnvelope(resolveSlackEventTeamId(c, store, channel.team_id), {
-        ...formatSlackMessage(msg),
-        channel: channel.channel_id,
-        event_ts: msg.ts,
-      }),
-      "slack",
-    );
+    await dispatchSlackEvent(store, webhooks, resolveSlackEventTeamId(c, store, channel.team_id), {
+      ...formatSlackMessage(msg),
+      channel: channel.channel_id,
+      event_ts: msg.ts,
+    });
     return msg;
   };
   const dispatchMemberJoined = async (c: Context, channel: SlackChannel, user: string, inviter?: string) => {
@@ -123,12 +113,29 @@ export function conversationsRoutes(ctx: RouteContext): void {
     });
   };
   const dispatchMemberLeft = async (c: Context, channel: SlackChannel, user: string) => {
+    const eventTs = generateTs();
     await dispatchConversationEvent(c, channel, "member_left_channel", {
       user,
       channel: channel.channel_id,
       channel_type: channelTypeLetter(channel),
       team: channel.team_id,
+      event_ts: eventTs,
     });
+    for (const installation of ss().installations.findBy("team_id", channel.team_id)) {
+      if (installation.bot_user_id !== user) continue;
+      await dispatchSlackEvent(
+        store,
+        webhooks,
+        channel.team_id,
+        {
+          type: channel.is_private ? "group_left" : "channel_left",
+          channel: channel.channel_id,
+          actor_id: getAuthUserId(c.get("authUser")!),
+          event_ts: eventTs,
+        },
+        installation,
+      );
+    }
   };
 
   // conversations.list

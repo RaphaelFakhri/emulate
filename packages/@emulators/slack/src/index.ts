@@ -83,6 +83,7 @@ export interface SlackSeedConfig {
   }>;
   strict_scopes?: boolean;
   signing_secret?: string;
+  verification_token?: string;
 }
 
 const DEFAULT_SLACK_SCOPES = [
@@ -376,6 +377,10 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: SlackSeed
 
   if (config.signing_secret !== undefined) {
     store.setData("slack.signing_secret", config.signing_secret);
+  }
+
+  if (config.verification_token !== undefined) {
+    store.setData("slack.verification_token", config.verification_token);
   }
 
   if (config.strict_scopes !== undefined) {

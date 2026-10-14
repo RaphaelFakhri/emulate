@@ -112,13 +112,18 @@ Slack message limits:
   and successful Web API responses include message_truncated warning metadata.
 
 Slack event callbacks:
-  Emitted event_callback payloads include team_id, event_id, and Unix-seconds event_time.
+  Event callbacks include token, api_app_id, authorizations, team_id, event_id, and event_time.
   The team comes from the presented token's installation, or affected resource or seeded team
   for development tokens. Incoming webhooks use their webhook or target channel team.
   Each logical event has a distinct ID shared across subscriber deliveries.
   chat.postMessage emits app_mention for installed bots mentioned as <@BOT_USER_ID> in joined channels.
   Subscribe to app_mention and invite the bot with conversations.invite. DMs and MPIMs use message events.
   Mention callbacks include api_app_id and retain message and thread identity.
+  Each workspace installation receives its own envelope; shared subscriptions can route by api_app_id.
+  Without an installation, api_app_id is A000000001. verification_token defaults to emulate-verification-token.
+  Inner events include event_ts; message events identify channel, group, im, or mpim in channel_type.
+  Issued or seeded bot tokens add stored bot identity to messages, history, and replies.
+  Removing an installed bot emits channel_left or group_left with actor_id and event_ts.
 `,
   );
 

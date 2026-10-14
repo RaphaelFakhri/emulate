@@ -72,6 +72,7 @@ describe("Slack app mentions", () => {
           type: "event_callback",
           team_id: "T000000001",
           api_app_id: appId,
+          authorizations: [expect.objectContaining({ user_id: botUserId, is_bot: true })],
           event_id: expect.stringMatching(/^Ev[0-9a-f]{32}$/),
           event_time: expect.any(Number),
           event: expect.objectContaining({

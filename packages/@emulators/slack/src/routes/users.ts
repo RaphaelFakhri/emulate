@@ -1,5 +1,5 @@
 import type { Context, RouteContext } from "@emulators/core";
-import { buildSlackEventEnvelope, resolveSlackEventTeamId } from "../events.js";
+import { dispatchSlackEvent, resolveSlackEventTeamId } from "../events.js";
 import { getSlackStore } from "../store.js";
 import {
   generateTs,
@@ -117,16 +117,11 @@ export function usersRoutes(ctx: RouteContext): void {
     if (updates.email !== undefined) userUpdates.email = nextProfile.email;
 
     const updated = ss().users.update(user.id, userUpdates)!;
-    await webhooks.dispatch(
-      "user_change",
-      undefined,
-      buildSlackEventEnvelope(resolveSlackEventTeamId(c, store, updated.team_id), {
-        type: "user_change",
-        user: formatUser(updated),
-        cache_ts: Number(generateTs().replace(".", "")),
-      }),
-      "slack",
-    );
+    await dispatchSlackEvent(store, webhooks, resolveSlackEventTeamId(c, store, updated.team_id), {
+      type: "user_change",
+      user: formatUser(updated),
+      cache_ts: Number(generateTs().replace(".", "")),
+    });
 
     return slackOk(c, { profile: formatProfile(updated.profile, canExposeEmail(c)) });
   }
@@ -183,16 +178,11 @@ export function usersRoutes(ctx: RouteContext): void {
       last_activity: nextPresence === "active" ? now : user.last_activity,
     })!;
 
-    await webhooks.dispatch(
-      "presence_change",
-      undefined,
-      buildSlackEventEnvelope(resolveSlackEventTeamId(c, store, updated.team_id), {
-        type: "presence_change",
-        user: updated.user_id,
-        presence: nextPresence,
-      }),
-      "slack",
-    );
+    await dispatchSlackEvent(store, webhooks, resolveSlackEventTeamId(c, store, updated.team_id), {
+      type: "presence_change",
+      user: updated.user_id,
+      presence: nextPresence,
+    });
 
     return slackOk(c, {});
   }
