@@ -256,15 +256,14 @@ export interface VercelBlobUploadPart {
 }
 
 // An in-progress multipart upload. The blob is only published on completion,
-// using the put options captured when the upload was created.
+// using the metadata captured when the upload was created. Overwrite and
+// ifMatch checks come from the completion request instead.
 export interface VercelBlobUpload extends Entity {
   uploadId: string;
   storeId: string;
   pathname: string;
   contentType: string;
   cacheControl: string;
-  allowOverwrite: boolean;
-  ifMatch: string | null;
   createdAt: string;
   parts: VercelBlobUploadPart[];
 }

@@ -382,7 +382,7 @@ curl -X PUT "http://localhost:4000/api/blob?pathname=docs/readme.txt" \
   --data-binary @readme.txt
 
 # Copy (x-if-match is compared with the source blob's ETag;
-#   x-allow-overwrite guards the destination)
+#   an existing destination is always replaced)
 curl -X PUT "http://localhost:4000/api/blob?pathname=docs/copy.txt&fromUrl=docs/readme.txt" \
   -H "Authorization: Bearer $BLOB_TOKEN"
 
@@ -412,10 +412,10 @@ curl http://localhost:4000/blob/mystore/docs/readme.txt
 
 Upload and deletion rules:
 
-- Leading slashes are removed from the pathname before validation, so `/docs/readme.txt` is stored as `docs/readme.txt`. This also applies to copy destinations.
+- A single leading slash is removed from the pathname before validation, so `/docs/readme.txt` is stored as `docs/readme.txt`. This also applies to copy destinations and multipart uploads.
 - The content type is taken from `x-content-type`, then the pathname extension when it is a known type, then the request `Content-Type` header, then `application/octet-stream`.
 - `x-cache-control-max-age` has a minimum of 60 seconds (`0` is stored as `public, max-age=60`). Absent or invalid values default to 30 days.
-- Deleting with an empty `urls` array returns 400 `Missing urls in request body`. Malformed JSON or more than 1,000 urls returns 400 `Cannot delete more than 1,000 urls at once or body is malformed`. Nothing is deleted in either case.
+- Deleting with a missing or empty `urls` array returns 400 `Missing urls in request body`. Malformed JSON returns 400 `Cannot delete more than 1,000 urls at once or body is malformed`, more than 1,000 urls returns 400 `Cannot delete more than 1,000 urls at once`, and any non-string entry returns 400 `Some urls are malformed`. Nothing is deleted in any of these cases.
 
 Multipart uploads can be created, but uploading parts and completing the upload are not supported yet and return 400. Client (browser) uploads are not supported yet.
 

@@ -17,17 +17,21 @@ export function registerDelete({ app, vs, parsedBaseUrl }: BlobRouteContext): vo
     try {
       body = await c.req.json();
     } catch {
-      body = undefined;
-    }
-    const isObject = typeof body === "object" && body !== null && !Array.isArray(body);
-    const rawUrls = isObject ? (body as { urls?: unknown }).urls : undefined;
-    if (isObject && (rawUrls === undefined || (Array.isArray(rawUrls) && rawUrls.length === 0))) {
-      return blobErr(c, 400, "bad_request", "Missing urls in request body");
-    }
-    if (!Array.isArray(rawUrls) || rawUrls.length > MAX_DELETE_URLS) {
       return blobErr(c, 400, "bad_request", "Cannot delete more than 1,000 urls at once or body is malformed");
     }
-    const urls = rawUrls.filter((u): u is string => typeof u === "string");
+    const urls = typeof body === "object" && body !== null ? (body as { urls?: unknown }).urls : undefined;
+    if (!urls || (Array.isArray(urls) && urls.length === 0)) {
+      return blobErr(c, 400, "bad_request", "Missing urls in request body");
+    }
+    if (!Array.isArray(urls)) {
+      return blobErr(c, 400, "bad_request", "Cannot delete more than 1,000 urls at once or body is malformed");
+    }
+    if (urls.length > MAX_DELETE_URLS) {
+      return blobErr(c, 400, "bad_request", "Cannot delete more than 1,000 urls at once");
+    }
+    if (!urls.every((u): u is string => typeof u === "string")) {
+      return blobErr(c, 400, "bad_request", "Some urls are malformed");
+    }
 
     const ifMatch = c.req.header("x-if-match");
     for (const urlOrPathname of urls) {

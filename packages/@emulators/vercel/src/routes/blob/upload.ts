@@ -2,7 +2,7 @@ import type { Context } from "@emulators/core";
 import { DEFAULT_CACHE_MAX_AGE, MIN_CACHE_MAX_AGE } from "./constants.js";
 import { blobErr, forbidden } from "./errors.js";
 import { resolveStoreId } from "./auth.js";
-import { withRandomSuffix } from "./paths.js";
+import { knownContentType, withRandomSuffix } from "./paths.js";
 
 export interface UploadTarget {
   storeId: string;
@@ -15,7 +15,7 @@ export function resolveUploadTarget(c: Context): UploadTarget | Response {
   const storeId = resolveStoreId(c);
   if (!storeId) return forbidden(c);
 
-  const rawPathname = c.req.query("pathname")?.replace(/^\/+/, "");
+  const rawPathname = c.req.query("pathname")?.replace(/^\//, "");
   if (!rawPathname) {
     return blobErr(c, 400, "bad_request", "pathname is required");
   }
@@ -30,6 +30,15 @@ export function resolveUploadTarget(c: Context): UploadTarget | Response {
 
   const pathname = c.req.header("x-add-random-suffix") === "1" ? withRandomSuffix(rawPathname) : rawPathname;
   return { storeId, pathname };
+}
+
+export function contentTypeFor(c: Context, pathname: string, { useRequestHeader = true } = {}): string {
+  return (
+    c.req.header("x-content-type") ||
+    knownContentType(pathname) ||
+    (useRequestHeader ? c.req.header("content-type") : undefined) ||
+    "application/octet-stream"
+  );
 }
 
 export function cacheControlFor(maxAgeHeader: string | undefined): string {

@@ -2,10 +2,10 @@ import { createHash } from "crypto";
 import type { Context } from "@emulators/core";
 import type { BlobRouteContext } from "./context.js";
 import { blobErr } from "./errors.js";
-import { blobUrl, contentDispositionFor, downloadUrl, knownContentType, resolveBlobRef } from "./paths.js";
+import { blobUrl, contentDispositionFor, downloadUrl, resolveBlobRef } from "./paths.js";
 import { findBlob, findBlobRef } from "./lookup.js";
 import { etagMatches } from "./etag.js";
-import { cacheControlFor, resolveUploadTarget } from "./upload.js";
+import { cacheControlFor, contentTypeFor, resolveUploadTarget } from "./upload.js";
 
 export function registerPut({ app, vs, baseUrl, parsedBaseUrl }: BlobRouteContext): void {
   // Upload. The SDK sends PUT <api>/?pathname=<pathname> with the raw bytes as body.
@@ -29,17 +29,14 @@ export function registerPut({ app, vs, baseUrl, parsedBaseUrl }: BlobRouteContex
     if (ifMatch && !etagMatches(source ? source.etag : existing?.etag, ifMatch)) {
       return blobErr(c, 412, "precondition_failed", "Precondition failed: ETag mismatch.");
     }
-    const overwriteAllowed = c.req.header("x-allow-overwrite") === "1" || (ifMatch !== undefined && !source);
+    // Copies always replace the destination, like the real service.
+    const overwriteAllowed = source !== undefined || ifMatch !== undefined || c.req.header("x-allow-overwrite") === "1";
     if (existing && !overwriteAllowed) {
       return blobErr(c, 400, "bad_request", "This blob already exists, use allowOverwrite: true to overwrite it");
     }
 
     const body = source ? Buffer.from(source.dataBase64, "base64") : Buffer.from(await c.req.arrayBuffer());
-    const contentType =
-      c.req.header("x-content-type") ||
-      knownContentType(pathname) ||
-      (source ? undefined : c.req.header("content-type")) ||
-      "application/octet-stream";
+    const contentType = contentTypeFor(c, pathname, { useRequestHeader: !source });
     const cacheControl = cacheControlFor(c.req.header("x-cache-control-max-age"));
     const contentDisposition = contentDispositionFor(pathname);
     const etag = `"${createHash("sha256").update(body).digest("hex")}"`;

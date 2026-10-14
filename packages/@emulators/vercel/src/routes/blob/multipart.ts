@@ -2,8 +2,7 @@ import { randomBytes } from "crypto";
 import type { Context } from "@emulators/core";
 import type { BlobRouteContext } from "./context.js";
 import { blobErr } from "./errors.js";
-import { inferContentType } from "./paths.js";
-import { cacheControlFor, resolveUploadTarget } from "./upload.js";
+import { cacheControlFor, contentTypeFor, resolveUploadTarget } from "./upload.js";
 
 export function registerMultipart({ app, vs }: BlobRouteContext): void {
   // Multipart uploads. Creation records a session; uploading parts and
@@ -19,10 +18,8 @@ export function registerMultipart({ app, vs }: BlobRouteContext): void {
       uploadId,
       storeId,
       pathname,
-      contentType: c.req.header("x-content-type") || inferContentType(pathname),
+      contentType: contentTypeFor(c, pathname),
       cacheControl: cacheControlFor(c.req.header("x-cache-control-max-age")),
-      allowOverwrite: c.req.header("x-allow-overwrite") === "1",
-      ifMatch: c.req.header("x-if-match") || null,
       createdAt: new Date().toISOString(),
       parts: [],
     });
