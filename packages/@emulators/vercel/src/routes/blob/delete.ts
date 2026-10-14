@@ -20,7 +20,7 @@ export function registerDelete({ app, vs, parsedBaseUrl }: BlobRouteContext): vo
       return blobErr(c, 400, "bad_request", "Cannot delete more than 1,000 urls at once or body is malformed");
     }
     const urls = typeof body === "object" && body !== null ? (body as { urls?: unknown }).urls : undefined;
-    if (urls === undefined || (Array.isArray(urls) && urls.length === 0)) {
+    if (!urls || (Array.isArray(urls) && urls.length === 0)) {
       return blobErr(c, 400, "bad_request", "Missing urls in request body");
     }
     if (!Array.isArray(urls)) {
