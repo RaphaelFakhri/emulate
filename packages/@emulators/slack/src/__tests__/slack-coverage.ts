@@ -11,6 +11,15 @@ export interface SlackCoverageEntry {
 
 export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
+    family: "events",
+    method: "events.retry_simulation",
+    route: "POST /_slack/simulate/event-retry",
+    status: "supported",
+    testedBy: ["event-retries.test.ts"],
+    notes:
+      "Explicit redelivery to the latest recipient with the same event ID, retry headers, fresh signing, and recorded results.",
+  },
+  {
     family: "apps",
     method: "apps.uninstall",
     route: "POST /api/apps.uninstall",

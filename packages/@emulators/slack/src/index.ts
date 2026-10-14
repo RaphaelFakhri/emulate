@@ -17,6 +17,7 @@ import { filesRoutes } from "./routes/files.js";
 import { pinsRoutes } from "./routes/pins.js";
 import { bookmarksRoutes } from "./routes/bookmarks.js";
 import { viewsRoutes } from "./routes/views.js";
+import { eventRetryRoutes } from "./routes/event-retries.js";
 import { interactionRoutes } from "./routes/interactions.js";
 import { slackRequestHeaders } from "./signing.js";
 import { inspectorRoutes } from "./routes/inspector.js";
@@ -404,6 +405,7 @@ export const slackPlugin: ServicePlugin = {
     bookmarksRoutes(ctx);
     viewsRoutes(ctx);
     interactionRoutes(ctx);
+    eventRetryRoutes(ctx);
     inspectorRoutes(ctx);
   },
   seed(store: Store, baseUrl: string): void {

@@ -727,6 +727,14 @@ To test bot handlers, invite an installed app's `bot_user_id` with `conversation
 
 When `slack.signing_secret` is configured, every existing outbound event subscription callback includes `X-Slack-Request-Timestamp` and `X-Slack-Signature`. The signature is `v0=<HMAC-SHA256(secret, "v0:<timestamp>:<raw-body>")>`, using the exact serialized callback body. Configure the receiver with the same secret and verify the unparsed request body. With an absent or empty secret, callbacks are unsigned.
 
+### Event retries
+
+Use `POST /_slack/simulate/event-retry` with an authenticated emulator token and JSON `{ "event_id": "Ev...", "reason": "http_timeout" }` to test event deduplication. Get the event ID from a received callback or the inspector's Events tab. The simulator resends the latest recorded delivery for that event to its original subscription, preserving the entire payload and event ID. If several subscribers received it, only the latest recipient is retried.
+
+Each attempt gets an increasing `X-Slack-Retry-Num`, starting at `1`, and `X-Slack-Retry-Reason` (default `http_timeout`). Reasons also accept `http_error`, `connection_failed`, `ssl_error`, `too_many_redirects`, and `unknown_error`. When `slack.signing_secret` is configured, the retry gets a fresh request timestamp and signature. The response includes `delivery_id`, `retry_num`, `success`, and `status_code`; a failed callback is recorded and still consumes a retry number.
+
+Retries are explicit, with no automatic scheduling or three-attempt limit. Only the latest 1,000 event deliveries are retained in memory, so retries are unavailable after their history is evicted or the emulator restarts. Unknown events return `event_not_found`, and an inactive subscription returns `subscription_inactive`.
+
 ## Current Limits
 
 Slack Connect, Enterprise Grid admin APIs, Audit Logs API, SCIM, Legal Holds, Socket Mode, slash commands, shortcuts, and interaction types other than button actions and modal submissions, user groups, reminders, stars, calls, canvases, lists, functions, workflows, chat streaming, legacy `files.upload`, exact rate limiting, and paid-plan behavior are not implemented.

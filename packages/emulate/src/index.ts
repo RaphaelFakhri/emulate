@@ -127,6 +127,9 @@ Slack message limits:
   and successful Web API responses include message_truncated warning metadata.
 
 Slack event callbacks:
+  POST /_slack/simulate/event-retry accepts event_id and optional reason (default http_timeout).
+  It resends the latest recorded delivery with increasing retry headers and a fresh Slack signature when configured.
+  Retries are explicit, target one original subscription, and require retained in-memory delivery history.
   Emitted event_callback payloads include team_id, event_id, and Unix-seconds event_time.
   The team comes from the presented token's installation, or affected resource or seeded team
   for development tokens. Incoming webhooks use their webhook or target channel team.
