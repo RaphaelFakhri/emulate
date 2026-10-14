@@ -81,6 +81,8 @@ Google Calendar discovery:
 
 Google OIDC:
   Discovery advertises RS256 ID tokens, and GET /oauth2/v3/certs returns the RSA public key used to verify them.
+  Set google.strict_scopes: true in seed config to validate issued access tokens, expiry, revocation, and method scopes.
+  Strict mode returns Google-style 401/403 errors and limits userinfo claims; bearer-token defaults remain permissive.
 
 Resend API coverage:
   POST /emails and POST /emails/batch support 24-hour Idempotency-Key replay without duplicate emails or webhooks.
@@ -113,6 +115,12 @@ Slack interactivity:
   Button response URLs support private/public replies and source updates for five uses within 30 minutes.
   Modal acknowledgements can close, clear, update, push, or show errors. Triggers expire in 3 seconds by default;
   slack.view_trigger_ttl_seconds can extend their lifetime for local tests.
+
+Slack app lifecycle:
+  POST /api/apps.uninstall accepts client_id, client_secret, and a user token or configured development token.
+  It revokes the app's OAuth credentials in that workspace and emits app_uninstalled and tokens_revoked.
+  Revoked tokens return token_revoked even with permissive authentication. Granular bot tokens return no_permission.
+  A new OAuth installation issues fresh credentials; other apps and workspaces are unaffected.
 
 Slack message limits:
   Slack text fields are limited to 40,000 Unicode characters. Longer text is truncated safely,

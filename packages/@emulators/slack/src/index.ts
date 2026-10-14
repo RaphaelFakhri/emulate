@@ -1,9 +1,11 @@
 import type { Context, Hono } from "@emulators/core";
 import type { ServicePlugin, Store, WebhookDispatcher, TokenMap, AppEnv, RouteContext } from "@emulators/core";
 import { getSlackStore } from "./store.js";
-import { generateSlackId } from "./helpers.js";
+import { generateSlackId, slackError } from "./helpers.js";
+import { isSlackTokenRevoked, slackRequestToken } from "./tokens.js";
 import type { SlackOAuthApp, SlackPresence, SlackTokenType, SlackUserProfile } from "./entities.js";
 import { authRoutes } from "./routes/auth.js";
+import { appsRoutes } from "./routes/apps.js";
 import { chatRoutes } from "./routes/chat.js";
 import { conversationsRoutes } from "./routes/conversations.js";
 import { usersRoutes } from "./routes/users.js";
@@ -379,12 +381,17 @@ export const slackPlugin: ServicePlugin = {
     webhooks.setHeaderFactory(({ body }) => slackRequestHeaders(store, body));
 
     app.use("*", async (c, next) => {
+      const token = slackRequestToken(c);
+      if (c.req.path.startsWith("/api/") && token && isSlackTokenRevoked(store, token)) {
+        return slackError(c, "token_revoked");
+      }
       applySlackTokenAuth(c, store);
       await next();
     });
 
     const ctx: RouteContext = { app, store, webhooks, baseUrl, tokenMap };
     authRoutes(ctx);
+    appsRoutes(ctx);
     chatRoutes(ctx);
     conversationsRoutes(ctx);
     usersRoutes(ctx);
@@ -431,13 +438,6 @@ function applySlackTokenAuth(c: Context, store: Store): void {
     id: record.id,
     scopes: record.scopes,
   });
-}
-
-function slackRequestToken(c: Context): string | undefined {
-  const authHeader = c.req.header("Authorization");
-  if (!authHeader) return undefined;
-  const token = authHeader.replace(/^(Bearer|token)\s+/i, "").trim();
-  return token || undefined;
 }
 
 function seedOAuthInstallation(

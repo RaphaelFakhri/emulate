@@ -968,6 +968,8 @@ OAuth 2.0, OpenID Connect, and mutable Google Workspace-style surfaces for local
 
 Google ID tokens are RS256-signed JWTs. The discovery document advertises RS256, and `/oauth2/v3/certs` returns the matching RSA public key used to verify issued tokens.
 
+Google authentication is permissive by default for local bearer-token workflows. Set `google.strict_scopes: true` in seed config to require emulator-issued, unexpired access tokens on Gmail, Calendar, Drive, and userinfo routes. Invalid credentials return `401 UNAUTHENTICATED`; missing method scopes return `403` with `insufficientPermissions`. Strict mode distinguishes read, write, send, settings, and metadata scopes, and userinfo includes only granted identity claims. Revoking an access or refresh token invalidates the linked access and refresh credentials. Discovery, signing keys, and the sign-in page remain public. This mode checks method scopes; resource-specific grants such as `drive.file` and Gmail add-on scopes are not modeled.
+
 - `GET /o/oauth2/v2/auth` - authorization endpoint
 - `POST /oauth2/token` - token exchange
 - `GET /oauth2/v2/userinfo` - get user info
@@ -1099,6 +1101,11 @@ A modal receiver must acknowledge within three seconds. An empty HTTP 200 closes
 - `GET /oauth/v2/authorize` - authorization (shows user picker)
 - `POST /oauth/v2/authorize/callback` - local user picker callback that creates the auth code
 - `POST /api/oauth.v2.access` - token exchange
+- `POST /api/apps.uninstall` - uninstall an app and revoke its workspace tokens
+
+`POST /api/apps.uninstall` accepts `client_id`, `client_secret`, and an installation's user token in the Authorization header or POST `token` field. It removes that app's installation in the token's workspace and revokes all associated OAuth bot and user tokens, including earlier grants. Revoked credentials return `token_revoked` on Web API calls even with permissive authentication. Other apps and workspaces keep their credentials. Granular bot tokens cannot uninstall an app and return `no_permission`; configured development tokens without an app binding may uninstall a local installation. No method scope is required.
+
+Uninstall dispatches `app_uninstalled` and `tokens_revoked` to matching event subscriptions with the removed app's `api_app_id`. `tokens_revoked.tokens.oauth` and `.bot` contain deduplicated user IDs, never token strings. Credentials are invalid before callbacks are delivered. Handlers should accept either event order. The app definition remains available for a new OAuth installation; reinstalling issues fresh tokens without reactivating revoked ones.
 
 ### Inspector
 - `GET /` - tabbed local inspector for conversations, messages, files, views, auth records, incoming webhooks, event subscriptions, and event deliveries
