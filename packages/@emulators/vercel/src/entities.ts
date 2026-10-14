@@ -248,6 +248,27 @@ export interface VercelBlob extends Entity {
   dataBase64: string;
 }
 
+export interface VercelBlobUploadPart {
+  partNumber: number;
+  etag: string;
+  size: number;
+  dataBase64: string;
+}
+
+// An in-progress multipart upload. The blob is only published on completion,
+// using the put options captured when the upload was created.
+export interface VercelBlobUpload extends Entity {
+  uploadId: string;
+  storeId: string;
+  pathname: string;
+  contentType: string;
+  cacheControl: string;
+  allowOverwrite: boolean;
+  ifMatch: string | null;
+  createdAt: string;
+  parts: VercelBlobUploadPart[];
+}
+
 export interface VercelIntegration extends Entity {
   client_id: string;
   client_secret: string;

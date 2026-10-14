@@ -28,12 +28,16 @@ export const MIME_TYPES: Record<string, string> = {
   zip: "application/zip",
 };
 
-export function inferContentType(pathname: string): string {
+export function knownContentType(pathname: string): string | undefined {
   const basename = pathname.split("/").pop() ?? "";
   const dot = basename.lastIndexOf(".");
-  if (dot <= 0) return "application/octet-stream";
+  if (dot <= 0) return undefined;
   const ext = basename.slice(dot + 1).toLowerCase();
-  return MIME_TYPES[ext] ?? "application/octet-stream";
+  return MIME_TYPES[ext];
+}
+
+export function inferContentType(pathname: string): string {
+  return knownContentType(pathname) ?? "application/octet-stream";
 }
 
 export function randomSuffix(): string {

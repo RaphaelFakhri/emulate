@@ -1,4 +1,5 @@
 import type { Context } from "@emulators/core";
+import type { VercelBlob } from "../../entities.js";
 import type { BlobRouteContext } from "./context.js";
 import { DEFAULT_LIST_LIMIT } from "./constants.js";
 import { blobErr, forbidden } from "./errors.js";
@@ -30,28 +31,27 @@ export function registerHeadList({ app, vs, baseUrl, parsedBaseUrl }: BlobRouteC
     const cursor = c.req.query("cursor");
     const folded = c.req.query("mode") === "folded";
 
-    let items = vs.blobs
-      .findBy("storeId", storeId)
-      .filter((b) => b.pathname.startsWith(prefix))
-      .sort((a, b) => (a.pathname < b.pathname ? -1 : a.pathname > b.pathname ? 1 : 0));
-
-    const folders = new Set<string>();
-    if (folded) {
-      items = items.filter((b) => {
-        const rest = b.pathname.slice(prefix.length);
-        const slash = rest.indexOf("/");
-        if (slash === -1) return true;
-        folders.add(prefix + rest.slice(0, slash + 1));
-        return false;
-      });
+    // Folded listings paginate over folders and root blobs together, so each
+    // entry is keyed by its folder prefix or its pathname.
+    const entries = new Map<string, VercelBlob | null>();
+    for (const b of vs.blobs.findBy("storeId", storeId)) {
+      if (!b.pathname.startsWith(prefix)) continue;
+      const slash = folded ? b.pathname.indexOf("/", prefix.length) : -1;
+      if (slash === -1) {
+        entries.set(b.pathname, b);
+      } else {
+        entries.set(b.pathname.slice(0, slash + 1), null);
+      }
     }
 
+    let keys = [...entries.keys()].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
     if (cursor) {
-      items = items.filter((b) => b.pathname > cursor);
+      keys = keys.filter((key) => key > cursor);
     }
 
-    const hasMore = items.length > limit;
-    const page = items.slice(0, limit);
+    const hasMore = keys.length > limit;
+    const pageKeys = keys.slice(0, limit);
+    const page = pageKeys.flatMap((key) => entries.get(key) ?? []);
 
     const result: Record<string, unknown> = {
       blobs: page.map((b) => {
@@ -67,11 +67,11 @@ export function registerHeadList({ app, vs, baseUrl, parsedBaseUrl }: BlobRouteC
       }),
       hasMore,
     };
-    if (hasMore && page.length > 0) {
-      result.cursor = page[page.length - 1].pathname;
+    if (hasMore && pageKeys.length > 0) {
+      result.cursor = pageKeys[pageKeys.length - 1];
     }
     if (folded) {
-      result.folders = [...folders].sort();
+      result.folders = pageKeys.filter((key) => entries.get(key) === null);
     }
     return c.json(result);
   };
