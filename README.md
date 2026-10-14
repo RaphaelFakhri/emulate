@@ -1074,6 +1074,11 @@ Modal opens and pushes require values from `/api/views.generateTriggerId`. Pass 
 - `GET /oauth/v2/authorize` - authorization (shows user picker)
 - `POST /oauth/v2/authorize/callback` - local user picker callback that creates the auth code
 - `POST /api/oauth.v2.access` - token exchange
+- `POST /api/apps.uninstall` - uninstall an app and revoke its workspace tokens
+
+`POST /api/apps.uninstall` accepts `client_id`, `client_secret`, and an installation's user token in the Authorization header or POST `token` field. It removes that app's installation in the token's workspace and revokes all associated OAuth bot and user tokens, including earlier grants. Revoked credentials return `token_revoked` on Web API calls even with permissive authentication. Other apps and workspaces keep their credentials. Granular bot tokens cannot uninstall an app and return `no_permission`; configured development tokens without an app binding may uninstall a local installation. No method scope is required.
+
+Uninstall dispatches `app_uninstalled` and `tokens_revoked` to matching event subscriptions with the removed app's `api_app_id`. `tokens_revoked.tokens.oauth` and `.bot` contain deduplicated user IDs, never token strings. Credentials are invalid before callbacks are delivered. Handlers should accept either event order. The app definition remains available for a new OAuth installation; reinstalling issues fresh tokens without reactivating revoked ones.
 
 ### Inspector
 - `GET /` - tabbed local inspector for conversations, messages, files, views, auth records, incoming webhooks, event subscriptions, and event deliveries

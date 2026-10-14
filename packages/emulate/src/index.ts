@@ -107,6 +107,12 @@ Configuration:
 Twilio API coverage:
   Accounts, API keys, phone numbers, Messaging, Verify, Voice, Conversations, webhooks, simulators, and inspector.
 
+Slack app lifecycle:
+  POST /api/apps.uninstall accepts client_id, client_secret, and a user token or configured development token.
+  It revokes the app's OAuth credentials in that workspace and emits app_uninstalled and tokens_revoked.
+  Revoked tokens return token_revoked even with permissive authentication. Granular bot tokens return no_permission.
+  A new OAuth installation issues fresh credentials; other apps and workspaces are unaffected.
+
 Slack message limits:
   Slack text fields are limited to 40,000 Unicode characters. Longer text is truncated safely,
   and successful Web API responses include message_truncated warning metadata.

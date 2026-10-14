@@ -664,6 +664,10 @@ Returns a Slack-style response:
 }
 ```
 
+`POST /api/apps.uninstall` accepts `client_id`, `client_secret`, and an installation's user token in the Authorization header or POST `token` field. It removes that app's installation in the token's workspace and revokes all associated OAuth bot and user tokens, including earlier grants. Revoked credentials return `token_revoked` on Web API calls even with permissive authentication. Other apps and workspaces keep their credentials. Granular bot tokens cannot uninstall an app and return `no_permission`; configured development tokens without an app binding may uninstall a local installation. No method scope is required.
+
+Uninstall dispatches `app_uninstalled` and `tokens_revoked` to matching event subscriptions with the removed app's `api_app_id`. `tokens_revoked.tokens.oauth` and `.bot` contain deduplicated user IDs, never token strings. Credentials are invalid before callbacks are delivered. Handlers should accept either event order. The app definition remains available for a new OAuth installation; reinstalling issues fresh tokens without reactivating revoked ones.
+
 ### Inspector
 
 Open `GET /` in the Slack emulator to inspect conversations, messages, files, views, auth records, incoming webhooks, event subscriptions, and event deliveries.
@@ -678,6 +682,7 @@ To test bot handlers, invite an installed app's `bot_user_id` with `conversation
 
 - `message` events on `chat.postMessage`
 - `app_mention` on `chat.postMessage` when channel message text mentions an installed member bot
+- `app_uninstalled` / `tokens_revoked` on successful `apps.uninstall`
 - `message` with `subtype: message_changed` on `chat.update`
 - `message` with `subtype: message_deleted` on `chat.delete`
 - rich message fields are included on posted `message` events when present

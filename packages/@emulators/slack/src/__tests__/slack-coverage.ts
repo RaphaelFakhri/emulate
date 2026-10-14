@@ -11,6 +11,15 @@ export interface SlackCoverageEntry {
 
 export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
+    family: "apps",
+    method: "apps.uninstall",
+    route: "POST /api/apps.uninstall",
+    status: "supported",
+    testedBy: ["apps-uninstall.test.ts"],
+    notes:
+      "Removes one workspace installation, revokes its OAuth tokens, and dispatches app_uninstalled and tokens_revoked events.",
+  },
+  {
     family: "auth",
     method: "auth.test",
     route: "POST /api/auth.test",
