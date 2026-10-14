@@ -71,7 +71,7 @@ export function appsRoutes({ app, store, webhooks, tokenMap }: RouteContext): vo
         String(event.type),
         undefined,
         {
-          ...buildSlackEventEnvelope(installation.team_id, { event_ts: generateTs(), ...event }),
+          ...buildSlackEventEnvelope(store, installation.team_id, { event_ts: generateTs(), ...event }),
           api_app_id: installation.app_id,
           token: store.getData<string>("slack.verification_token") ?? "emulate-verification-token",
           authorizations: [

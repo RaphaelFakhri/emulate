@@ -41,7 +41,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
     method: "chat.postMessage",
     route: "POST /api/chat.postMessage",
     status: "partial",
-    testedBy: ["slack.test.ts", "slack-sdk.test.ts", "slack-events.test.ts"],
+    testedBy: ["slack-connect.test.ts", "slack.test.ts", "slack-sdk.test.ts", "slack-events.test.ts"],
     notes:
       "Text is limited to 40,000 Unicode code points with Slack message_truncated warning metadata. Thread replies, blocks, attachments, metadata, formatting flags, unfurl flags, client message ids, and DM user id posting round trip. Full membership checks are future work.",
   },
@@ -117,7 +117,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
     method: "conversations.list",
     route: "POST /api/conversations.list",
     status: "partial",
-    testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
+    testedBy: ["slack-connect.test.ts", "slack.test.ts", "slack-sdk.test.ts"],
     notes:
       "Lists conversations with simple cursor pagination, exclude_archived, and basic public/private/IM/MPIM type filtering.",
   },
@@ -126,7 +126,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
     method: "conversations.info",
     route: "POST /api/conversations.info",
     status: "supported",
-    testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
+    testedBy: ["slack-connect.test.ts", "slack.test.ts", "slack-sdk.test.ts"],
     notes: "Returns seeded channel metadata.",
   },
   {
@@ -203,7 +203,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
     method: "conversations.join",
     route: "POST /api/conversations.join",
     status: "partial",
-    testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
+    testedBy: ["slack-connect.test.ts", "slack.test.ts", "slack-sdk.test.ts"],
     notes: "Adds the auth user to channel membership.",
   },
   {
@@ -211,7 +211,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
     method: "conversations.leave",
     route: "POST /api/conversations.leave",
     status: "partial",
-    testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
+    testedBy: ["slack-connect.test.ts", "slack.test.ts", "slack-sdk.test.ts"],
     notes: "Removes the auth user from channel membership.",
   },
   {
@@ -227,7 +227,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
     method: "conversations.invite",
     route: "POST /api/conversations.invite",
     status: "partial",
-    testedBy: ["slack.test.ts", "slack-sdk.test.ts", "slack-events.test.ts"],
+    testedBy: ["slack-connect.test.ts", "slack.test.ts", "slack-sdk.test.ts", "slack-events.test.ts"],
     notes:
       "Adds users to public/private channels and MPIMs, with basic membership errors and member_joined_channel events.",
   },
@@ -236,7 +236,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
     method: "conversations.kick",
     route: "POST /api/conversations.kick",
     status: "partial",
-    testedBy: ["slack.test.ts", "slack-sdk.test.ts", "slack-events.test.ts"],
+    testedBy: ["slack-connect.test.ts", "slack.test.ts", "slack-sdk.test.ts", "slack-events.test.ts"],
     notes: "Removes users from public/private channels and MPIMs, with basic errors and member_left_channel events.",
   },
   {
@@ -268,7 +268,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
     method: "users.list",
     route: "POST /api/users.list",
     status: "partial",
-    testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
+    testedBy: ["slack-connect.test.ts", "slack.test.ts", "slack-sdk.test.ts"],
     notes: "Lists active users with simple cursor pagination.",
   },
   {
@@ -276,7 +276,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
     method: "users.info",
     route: "POST /api/users.info",
     status: "supported",
-    testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
+    testedBy: ["slack-connect.test.ts", "slack.test.ts", "slack-sdk.test.ts"],
     notes: "Returns seeded user profile data.",
   },
   {

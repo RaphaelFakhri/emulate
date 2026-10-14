@@ -1,6 +1,7 @@
 import type { Context, RouteContext } from "@emulators/core";
 import type { SlackChannel, SlackFile, SlackFileShare, SlackMessage, SlackUser } from "../entities.js";
 import { buildSlackEventEnvelope, resolveSlackEventTeamId } from "../events.js";
+import { isSlackConnectChannel } from "../connect.js";
 import { getSlackStore } from "../store.js";
 import {
   formatSlackMessage,
@@ -21,6 +22,10 @@ import {
 export function conversationsRoutes(ctx: RouteContext): void {
   const { app, store, webhooks } = ctx;
   const ss = () => getSlackStore(store);
+  const formatChannel = (channel: SlackChannel, viewer?: string, viewerName?: string) => {
+    const shared = isSlackConnectChannel(store, channel);
+    return { ...formatConversation(channel, viewer, viewerName), is_ext_shared: shared, is_shared: shared };
+  };
   const getAuthSlackUser = (authUser: { login: string }) =>
     ss().users.findOneBy("user_id", authUser.login) ?? ss().users.findOneBy("name", authUser.login);
   const getAuthUserId = (authUser: { login: string }) => getAuthSlackUser(authUser)?.user_id ?? authUser.login;
@@ -79,7 +84,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
     await webhooks.dispatch(
       type,
       undefined,
-      buildSlackEventEnvelope(resolveSlackEventTeamId(c, store, channel.team_id), { type, ...event }),
+      buildSlackEventEnvelope(store, resolveSlackEventTeamId(c, store, channel.team_id), { type, ...event }),
       "slack",
     );
   };
@@ -104,7 +109,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
     await webhooks.dispatch(
       "message",
       undefined,
-      buildSlackEventEnvelope(resolveSlackEventTeamId(c, store, channel.team_id), {
+      buildSlackEventEnvelope(store, resolveSlackEventTeamId(c, store, channel.team_id), {
         ...formatSlackMessage(msg),
         channel: channel.channel_id,
         event_ts: msg.ts,
@@ -560,6 +565,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
 
     const updated = ss().channels.update(ch.id, {
       members: updatedMembers,
+      is_ext_shared: isSlackConnectChannel(store, ch),
       num_members: updatedMembers.length,
     })!;
     await dispatchMemberLeft(c, updated, authUserId);
@@ -612,6 +618,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
     const updatedMembers = [...ch.members, ...validUsers];
     const updated = ss().channels.update(ch.id, {
       members: updatedMembers,
+      is_ext_shared: isSlackConnectChannel(store, ch),
       num_members: updatedMembers.length,
     })!;
 
@@ -654,6 +661,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
     const updatedMembers = ch.members.filter((member) => !targetAliases.has(member));
     const updated = ss().channels.update(ch.id, {
       members: updatedMembers,
+      is_ext_shared: isSlackConnectChannel(store, ch),
       num_members: updatedMembers.length,
     })!;
     await dispatchMemberLeft(c, updated, user);
@@ -832,7 +840,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
   });
 }
 
-function formatChannel(ch: SlackChannel, viewer?: string, viewerName?: string) {
+function formatConversation(ch: SlackChannel, viewer?: string, viewerName?: string) {
   const imUser = ch.is_im && viewer ? ch.members.find((member) => member !== viewer) : ch.user;
   const isMember = viewer
     ? ch.members.includes(viewer) || (viewerName !== undefined && ch.members.includes(viewerName))

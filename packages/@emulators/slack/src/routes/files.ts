@@ -255,7 +255,7 @@ export function filesRoutes(ctx: RouteContext): void {
         }),
       );
       ss().fileUploadSessions.update(session.id, { completed: true });
-      await dispatchFileEvent(webhooks, "file_created", file, resolveSlackEventTeamId(c, store, file.team_id));
+      await dispatchFileEvent(store, webhooks, "file_created", file, resolveSlackEventTeamId(c, store, file.team_id));
       completedFiles.push(file);
     }
 
@@ -290,16 +290,23 @@ export function filesRoutes(ctx: RouteContext): void {
         for (const file of updatedFiles) {
           const shared = updateFileShare(file, channel, msg, authUserId);
           messageFiles.push(shared);
-          await dispatchFileEvent(webhooks, "file_shared", shared, resolveSlackEventTeamId(c, store, shared.team_id), {
-            channel_id: channel.channel_id,
-          });
+          await dispatchFileEvent(
+            store,
+            webhooks,
+            "file_shared",
+            shared,
+            resolveSlackEventTeamId(c, store, shared.team_id),
+            {
+              channel_id: channel.channel_id,
+            },
+          );
         }
 
         const updatedMessage = ss().messages.update(msg.id, { files: messageFiles })!;
         await webhooks.dispatch(
           "message",
           undefined,
-          buildSlackEventEnvelope(resolveSlackEventTeamId(c, store, channel.team_id), {
+          buildSlackEventEnvelope(store, resolveSlackEventTeamId(c, store, channel.team_id), {
             ...formatSlackMessage(updatedMessage),
             type: "message",
             subtype: "file_share",
@@ -413,7 +420,13 @@ export function filesRoutes(ctx: RouteContext): void {
 
     const deleted = ss().files.update(file.id, { deleted: true })!;
     removeFileFromMessages(deleted.file_id);
-    await dispatchFileEvent(webhooks, "file_deleted", deleted, resolveSlackEventTeamId(c, store, deleted.team_id));
+    await dispatchFileEvent(
+      store,
+      webhooks,
+      "file_deleted",
+      deleted,
+      resolveSlackEventTeamId(c, store, deleted.team_id),
+    );
     return slackOk(c, {});
   });
 
@@ -700,6 +713,7 @@ function prettyTypeFor(filetype: string): string {
 }
 
 async function dispatchFileEvent(
+  store: RouteContext["store"],
   webhooks: RouteContext["webhooks"],
   type: "file_created" | "file_shared" | "file_deleted",
   file: SlackFile,
@@ -709,7 +723,7 @@ async function dispatchFileEvent(
   await webhooks.dispatch(
     type,
     undefined,
-    buildSlackEventEnvelope(teamId, {
+    buildSlackEventEnvelope(store, teamId, {
       type,
       file_id: file.file_id,
       file: formatSlackFile(file),

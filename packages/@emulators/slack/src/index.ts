@@ -33,6 +33,8 @@ export interface SlackSeedConfig {
   };
   users?: Array<{
     name: string;
+    team_id?: string;
+    is_stranger?: boolean;
     real_name?: string;
     email?: string;
     is_admin?: boolean;
@@ -41,6 +43,7 @@ export interface SlackSeedConfig {
   }>;
   channels?: Array<{
     name: string;
+    is_ext_shared?: boolean;
     topic?: string;
     purpose?: string;
     is_private?: boolean;
@@ -232,7 +235,8 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: SlackSeed
       });
       ss.users.insert({
         user_id: userId,
-        team_id: teamId,
+        team_id: u.team_id ?? teamId,
+        is_stranger: u.is_stranger ?? false,
         name: u.name,
         real_name: profile.real_name,
         email: profile.email,
@@ -261,6 +265,7 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: SlackSeed
         channel_id: generateSlackId("C"),
         team_id: teamId,
         name: ch.name,
+        is_ext_shared: ch.is_ext_shared ?? false,
         is_channel: !isPrivate,
         is_private: isPrivate,
         is_archived: false,

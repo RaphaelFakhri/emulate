@@ -63,7 +63,7 @@ export function reactionsRoutes(ctx: RouteContext): void {
     await webhooks.dispatch(
       "reaction_added",
       undefined,
-      buildSlackEventEnvelope(resolveSlackEventTeamId(c, store, ch?.team_id), {
+      buildSlackEventEnvelope(store, resolveSlackEventTeamId(c, store, ch?.team_id), {
         type: "reaction_added",
         user: authUserId,
         reaction: name,
@@ -114,7 +114,7 @@ export function reactionsRoutes(ctx: RouteContext): void {
     await webhooks.dispatch(
       "reaction_removed",
       undefined,
-      buildSlackEventEnvelope(resolveSlackEventTeamId(c, store, ch?.team_id), {
+      buildSlackEventEnvelope(store, resolveSlackEventTeamId(c, store, ch?.team_id), {
         type: "reaction_removed",
         user: authUserId,
         reaction: name,

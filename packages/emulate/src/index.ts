@@ -126,6 +126,12 @@ Slack message limits:
   Slack text fields are limited to 40,000 Unicode characters. Longer text is truncated safely,
   and successful Web API responses include message_truncated warning metadata.
 
+Slack Connect fixtures:
+  Seed slack.users[].team_id to model an external author; is_stranger is an optional fixture flag.
+  Channels with external members report is_ext_shared and is_shared; events include is_ext_shared_channel.
+  App mentions carry the external author's user_team/source_team while the envelope keeps the receiving team.
+  Seed slack.channels[].is_ext_shared for existing shares. Invitation/approval and workspace unlink flows are not simulated.
+
 Slack event callbacks:
   POST /_slack/simulate/event-retry accepts event_id and optional reason (default http_timeout).
   It resends the latest recorded delivery with increasing retry headers and a fresh Slack signature when configured.

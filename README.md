@@ -1072,6 +1072,27 @@ Modal opens and pushes accept `trigger_id` or `interactivity_pointer` from an in
 - `POST /api/bots.info` - bot info
 - `POST /services/:teamId/:botId/:webhookId` - incoming webhook with text or rich payload fields
 
+### Slack Connect fixtures
+
+Seed a user with a different `team_id` to test messages from another workspace. `users.info` and `users.list` return that user's workspace and `is_stranger` flag. Omitted user teams default to the emulated workspace. `is_stranger` defaults to `false` and can be seeded to model a user outside the app's visible shared channels.
+
+```yaml
+slack:
+  users:
+    - name: partner
+      team_id: T_PARTNER
+      is_stranger: false
+  tokens:
+    - token: xoxp-partner
+      type: user
+      user: partner
+      scopes: [chat:write]
+```
+
+Use the seeded user token to act as the external user. Invite the user and your app's bot to a channel with `conversations.invite`, then post a message mentioning the bot. The app-mention event includes the author's `user_team` and `source_team`; the outer `team_id` identifies the receiving installation workspace selected by the token, which defaults to the emulated workspace. Ordinary message callbacks retain the author user ID, which can be resolved with `users.info`.
+
+A channel with external members returns `is_ext_shared: true` and `is_shared: true`; its event callbacks include `is_ext_shared_channel: true`. Seed `channels[].is_ext_shared: true` to model an already shared channel. Sharing remains set after the last external member leaves or is removed, including across saved state. Slack Connect invitation and approval flows, workspace disconnection, and per-workspace channel settings are not simulated.
+
 ### Event retries
 
 Use `POST /_slack/simulate/event-retry` with an authenticated emulator token and JSON `{ "event_id": "Ev...", "reason": "http_timeout" }` to test event deduplication. Get the event ID from a received callback or the inspector's Events tab. The simulator resends the latest recorded delivery for that event to its original subscription, preserving the entire payload and event ID. If several subscribers received it, only the latest recipient is retried.
@@ -1124,7 +1145,7 @@ To test bot handlers, invite an installed app's `bot_user_id` with `conversation
 
 Slack scope checks are relaxed by default so local tests can use simple bearer tokens. Set `slack.strict_scopes: true` in seed config to make supported Web API methods return Slack-style `missing_scope` errors with `needed` and `provided` fields. Strict mode checks `chat:write`, `channels:read`, `channels:history`, `channels:join`, `channels:manage`, `channels:write`, `groups:read`, `groups:history`, `groups:write`, `im:read`, `im:history`, `im:write`, `mpim:read`, `mpim:history`, `mpim:write`, `users:read`, `users:read.email`, `users.profile:read`, `users.profile:write`, `users:write`, `files:read`, `files:write`, `pins:read`, `pins:write`, `bookmarks:read`, `bookmarks:write`, `reactions:read`, `reactions:write`, and `team:read`. Slack lists no method-specific scopes for `views.publish`, `views.open`, `views.update`, or `views.push`, so the emulator requires auth but does not add strict-scope checks for those methods.
 
-Current Slack limits: Slack Connect, Enterprise Grid admin APIs, Audit Logs API, SCIM, Legal Holds, Socket Mode, slash commands, shortcuts, and interaction types other than button actions and modal submissions, user groups, reminders, stars, calls, canvases, lists, functions, workflows, chat streaming, legacy `files.upload`, exact rate limiting, and paid-plan behavior are not implemented.
+Current Slack limits: Slack Connect invitation and approval flows, per-workspace channel settings, Enterprise Grid admin APIs, Audit Logs API, SCIM, Legal Holds, Socket Mode, slash commands, shortcuts, and interaction types other than button actions and modal submissions, user groups, reminders, stars, calls, canvases, lists, functions, workflows, chat streaming, legacy `files.upload`, exact rate limiting, and paid-plan behavior are not implemented.
 
 ## Linear API
 

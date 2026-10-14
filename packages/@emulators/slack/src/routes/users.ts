@@ -120,7 +120,7 @@ export function usersRoutes(ctx: RouteContext): void {
     await webhooks.dispatch(
       "user_change",
       undefined,
-      buildSlackEventEnvelope(resolveSlackEventTeamId(c, store, updated.team_id), {
+      buildSlackEventEnvelope(store, resolveSlackEventTeamId(c, store, updated.team_id), {
         type: "user_change",
         user: formatUser(updated),
         cache_ts: Number(generateTs().replace(".", "")),
@@ -186,7 +186,7 @@ export function usersRoutes(ctx: RouteContext): void {
     await webhooks.dispatch(
       "presence_change",
       undefined,
-      buildSlackEventEnvelope(resolveSlackEventTeamId(c, store, updated.team_id), {
+      buildSlackEventEnvelope(store, resolveSlackEventTeamId(c, store, updated.team_id), {
         type: "presence_change",
         user: updated.user_id,
         presence: nextPresence,
@@ -214,6 +214,7 @@ function formatUser(u: SlackUser, includeEmail = true) {
   return {
     id: u.user_id,
     team_id: u.team_id,
+    is_stranger: u.is_stranger ?? false,
     name: u.name,
     real_name: u.real_name,
     is_admin: u.is_admin,

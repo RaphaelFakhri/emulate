@@ -70,7 +70,7 @@ export function chatRoutes(ctx: RouteContext): void {
     await webhooks.dispatch(
       type,
       undefined,
-      buildSlackEventEnvelope(resolveSlackEventTeamId(c, store, teamId), { type, ...event }),
+      buildSlackEventEnvelope(store, resolveSlackEventTeamId(c, store, teamId), { type, ...event }),
       "slack",
     );
   };
@@ -93,7 +93,7 @@ export function chatRoutes(ctx: RouteContext): void {
         "app_mention",
         undefined,
         {
-          ...buildSlackEventEnvelope(teamId, {
+          ...buildSlackEventEnvelope(store, teamId, {
             ...formatSlackMessage(message),
             type: "app_mention",
             channel: channel.channel_id,
@@ -218,7 +218,7 @@ export function chatRoutes(ctx: RouteContext): void {
     await webhooks.dispatch(
       "message",
       undefined,
-      buildSlackEventEnvelope(resolveSlackEventTeamId(c, store, ch.team_id), {
+      buildSlackEventEnvelope(store, resolveSlackEventTeamId(c, store, ch.team_id), {
         ...formatSlackMessage(msg),
         type: "message",
         channel: ch.channel_id,
@@ -332,7 +332,7 @@ export function chatRoutes(ctx: RouteContext): void {
     await webhooks.dispatch(
       "message",
       undefined,
-      buildSlackEventEnvelope(resolveSlackEventTeamId(c, store, ch?.team_id), {
+      buildSlackEventEnvelope(store, resolveSlackEventTeamId(c, store, ch?.team_id), {
         type: "message",
         subtype: "message_changed",
         hidden: true,
@@ -383,7 +383,7 @@ export function chatRoutes(ctx: RouteContext): void {
     await webhooks.dispatch(
       "message",
       undefined,
-      buildSlackEventEnvelope(resolveSlackEventTeamId(c, store, ch?.team_id), {
+      buildSlackEventEnvelope(store, resolveSlackEventTeamId(c, store, ch?.team_id), {
         type: "message",
         subtype: "message_deleted",
         hidden: true,

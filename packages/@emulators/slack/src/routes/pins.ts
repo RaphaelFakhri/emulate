@@ -170,7 +170,7 @@ export function pinsRoutes(ctx: RouteContext): void {
     await webhooks.dispatch(
       type,
       undefined,
-      buildSlackEventEnvelope(resolveSlackEventTeamId(c, store, channel.team_id), { type, ...event }),
+      buildSlackEventEnvelope(store, resolveSlackEventTeamId(c, store, channel.team_id), { type, ...event }),
       "slack",
     );
   }

@@ -386,7 +386,7 @@ export function interactionRoutes({ app, store, baseUrl, webhooks }: RouteContex
     await webhooks.dispatch(
       "message",
       undefined,
-      buildSlackEventEnvelope(teamId, { event_ts: generateTs(), ...event }),
+      buildSlackEventEnvelope(store, teamId, { event_ts: generateTs(), ...event }),
       "slack",
     );
   }

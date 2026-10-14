@@ -41,6 +41,7 @@ export type SlackManualPresence = "auto" | "away";
 export interface SlackUser extends Entity {
   user_id: string;
   team_id: string;
+  is_stranger?: boolean;
   name: string;
   real_name: string;
   email: string;
@@ -57,6 +58,7 @@ export interface SlackUser extends Entity {
 export interface SlackChannel extends Entity {
   channel_id: string;
   team_id: string;
+  is_ext_shared?: boolean;
   name: string;
   is_channel: boolean;
   is_private: boolean;

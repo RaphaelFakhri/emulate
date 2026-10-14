@@ -101,7 +101,7 @@ export function webhookRoutes(ctx: RouteContext): void {
     await webhooks.dispatch(
       "message",
       undefined,
-      buildSlackEventEnvelope(webhook?.team_id ?? targetChannel.team_id, {
+      buildSlackEventEnvelope(store, webhook?.team_id ?? targetChannel.team_id, {
         ...eventMessage,
         type: "message",
         subtype: "bot_message",
