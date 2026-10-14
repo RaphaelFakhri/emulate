@@ -674,7 +674,10 @@ For supported Slack writes that emit events, the emulator dispatches `event_call
 
 Each callback includes outer `team_id`, `event_id`, and integer Unix-seconds `event_time` alongside the inner `event`. For authenticated Web API writes, `team_id` comes from the presented Slack token's installation. Development tokens without a stored Slack record fall back to the affected channel, user, or file's team, then the seeded workspace team (or `T000000001`). Incoming webhook posts use their webhook record's team, or the target channel's team when no record matches. Each logical event gets a distinct `event_id` shared by deliveries to multiple subscribers.
 
+To test bot handlers, invite an installed app's `bot_user_id` with `conversations.invite`, subscribe to `app_mention`, then post text containing `<@BOT_USER_ID>` with `chat.postMessage`. Channel mentions produce one callback per mentioned app, with outer `api_app_id`, inner `event_ts`, and the original message and thread identity. DMs and MPIMs use `message` events.
+
 - `message` events on `chat.postMessage`
+- `app_mention` on `chat.postMessage` when channel message text mentions an installed member bot
 - `message` with `subtype: message_changed` on `chat.update`
 - `message` with `subtype: message_deleted` on `chat.delete`
 - rich message fields are included on posted `message` events when present

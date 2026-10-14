@@ -65,6 +65,37 @@ export function chatRoutes(ctx: RouteContext): void {
       "slack",
     );
   };
+  const dispatchAppMentions = async (c: Context, channel: SlackChannel, message: SlackMessage) => {
+    if (channel.is_im || channel.is_mpim) return;
+
+    const mentionedUsers = new Set([...message.text.matchAll(/<@([^<>\s|]+)(?:\|[^<>]*)?>/g)].map((match) => match[1]));
+    if (mentionedUsers.size === 0) return;
+
+    const teamId = resolveSlackEventTeamId(c, store, channel.team_id);
+    for (const installation of ss().installations.findBy("team_id", teamId)) {
+      if (!mentionedUsers.has(installation.bot_user_id)) continue;
+      const botUser = ss().users.findOneBy("user_id", installation.bot_user_id);
+      const bot = ss().bots.findOneBy("bot_id", installation.bot_id);
+      if (!botUser || !botUser.is_bot || botUser.deleted || !bot || bot.deleted || !isChannelMember(channel, botUser)) {
+        continue;
+      }
+
+      await webhooks.dispatch(
+        "app_mention",
+        undefined,
+        {
+          ...buildSlackEventEnvelope(teamId, {
+            ...formatSlackMessage(message),
+            type: "app_mention",
+            channel: channel.channel_id,
+            event_ts: message.ts,
+          }),
+          api_app_id: installation.app_id,
+        },
+        "slack",
+      );
+    }
+  };
   const findOrCreateDirectMessage = async (c: Context, authUser: { login: string }, userId: string) => {
     const targetUser = ss().users.findOneBy("user_id", userId);
     if (!targetUser || targetUser.deleted) return undefined;
@@ -184,6 +215,7 @@ export function chatRoutes(ctx: RouteContext): void {
       }),
       "slack",
     );
+    await dispatchAppMentions(c, ch, msg);
 
     return slackOk(c, {
       channel: ch.channel_id,

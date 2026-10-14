@@ -114,6 +114,9 @@ Slack event callbacks:
   The team comes from the presented token's installation, or affected resource or seeded team
   for development tokens. Incoming webhooks use their webhook or target channel team.
   Each logical event has a distinct ID shared across subscriber deliveries.
+  chat.postMessage emits app_mention for installed bots mentioned as <@BOT_USER_ID> in joined channels.
+  Subscribe to app_mention and invite the bot with conversations.invite. DMs and MPIMs use message events.
+  Mention callbacks include api_app_id and retain message and thread identity.
 `,
   );
 
