@@ -822,7 +822,7 @@ Implements the Vercel Blob API used by the `@vercel/blob` SDK (`put`, `head`, `l
 
 Upload and deletion rules:
 
-- A pathname containing `//` is rejected with 400. Otherwise a single leading slash is removed, so `/docs/readme.txt` is stored as `docs/readme.txt`. This also applies to copy destinations and multipart uploads.
+- A single leading slash is removed from the pathname, so `/docs/readme.txt` is stored as `docs/readme.txt`. As in the real service, `//` is otherwise accepted over HTTP, so `//a.txt` is stored as `/a.txt` (the `@vercel/blob` SDK rejects `//` before sending a request). This also applies to copy destinations and multipart uploads.
 - The content type is taken from `x-content-type`, then the pathname extension when it is a known type, then the request `Content-Type` header, then `application/octet-stream`.
 - `x-cache-control-max-age` has a minimum of 60 seconds (`0` is stored as `public, max-age=60`). Absent or invalid values default to 30 days.
 - Deleting with a missing or empty `urls` array returns 400 `Missing urls in request body`. Malformed JSON returns 400 `Cannot delete more than 1,000 urls at once or body is malformed`, more than 1,000 urls returns 400 `Cannot delete more than 1,000 urls at once`, and any non-string entry returns 400 `Some urls are malformed`. Nothing is deleted in any of these cases.

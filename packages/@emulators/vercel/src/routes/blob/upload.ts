@@ -15,12 +15,9 @@ export function resolveUploadTarget(c: Context): UploadTarget | Response {
   const storeId = resolveStoreId(c);
   if (!storeId) return forbidden(c);
 
-  // Check // before stripping the leading slash so "//a.txt" is still rejected.
-  const queryPathname = c.req.query("pathname");
-  if (queryPathname?.includes("//")) {
-    return blobErr(c, 400, "bad_request", "pathname cannot contain //");
-  }
-  const rawPathname = queryPathname?.replace(/^\//, "");
+  // Like the real service, strip exactly one leading slash and accept "//"
+  // elsewhere; only the SDK rejects "//" before sending the request.
+  const rawPathname = c.req.query("pathname")?.replace(/^\//, "");
   if (!rawPathname) {
     return blobErr(c, 400, "bad_request", "pathname is required");
   }
