@@ -68,6 +68,8 @@ Vercel API coverage:
 
 AWS API coverage:
   S3 uploads and downloads preserve arbitrary binary payloads, including raw byte lengths and ETags.
+  SQS supports current AWS SDK clients using AWS JSON 1.0 at /sqs, alongside XML Query requests.
+  Queue operations also accept the returned QueueUrl as the endpoint.
 
 Google Calendar discovery:
   GET /discovery/v1/apis/calendar/v3/rest returns the public discovery document for the emulated Calendar v3 surface.

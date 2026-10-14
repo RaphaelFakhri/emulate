@@ -1205,7 +1205,7 @@ grant_type=refresh_token"
 
 ## AWS
 
-S3, SQS, IAM, and STS emulation with AWS SDK-compatible S3 paths and query-style SQS/IAM/STS endpoints. S3 uploads and downloads preserve arbitrary binary payloads, including raw byte lengths and ETags. All responses use AWS-compatible XML.
+S3, SQS, IAM, and STS emulation with AWS SDK-compatible S3 paths. S3 uploads and downloads preserve arbitrary binary payloads, including raw byte lengths and ETags. SQS supports AWS JSON 1.0 and XML Query protocols; IAM and STS use XML Query.
 
 ### S3
 
@@ -1223,7 +1223,28 @@ S3 routes use root paths matching the real AWS S3 wire format, so the official A
 - `DELETE /:bucket/:key` - delete object
 
 ### SQS
-All operations via `POST /sqs/` with `Action` parameter:
+
+Current AWS SDK clients work with the `/sqs` endpoint:
+
+```typescript
+import { SQSClient, ListQueuesCommand } from "@aws-sdk/client-sqs";
+
+const sqs = new SQSClient({
+  endpoint: "http://localhost:4007/sqs",
+  region: "us-east-1",
+  credentials: {
+    accessKeyId: "AKIAIOSFODNN7EXAMPLE",
+    secretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+  },
+});
+
+await sqs.send(new ListQueuesCommand({}));
+```
+
+SQS accepts AWS JSON 1.0 requests at `POST /sqs/` with `Content-Type: application/x-amz-json-1.0` and `X-Amz-Target: AmazonSQS.<Action>`, returning JSON results and errors. XML Query requests with an `Action` form parameter remain supported. Queue operations also accept the returned `QueueUrl` as the endpoint.
+
+Supported operations:
+
 - `CreateQueue`, `ListQueues`, `GetQueueUrl`, `GetQueueAttributes`
 - `SendMessage`, `ReceiveMessage`, `DeleteMessage`
 - `PurgeQueue`, `DeleteQueue`

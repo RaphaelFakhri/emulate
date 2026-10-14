@@ -6,7 +6,7 @@ allowed-tools: Bash(npx emulate:*), Bash(curl:*)
 
 # AWS Emulator
 
-S3, SQS, IAM, and STS emulation with AWS SDK-compatible S3 paths and query-style SQS/IAM/STS endpoints. S3 uploads and downloads preserve arbitrary binary payloads, including raw byte lengths and ETags. All state is in-memory, and responses use AWS-compatible XML.
+S3, SQS, IAM, and STS emulation with AWS SDK-compatible S3 paths. S3 uploads and downloads preserve arbitrary binary payloads, including raw byte lengths and ETags. SQS supports AWS JSON 1.0 and XML Query protocols; IAM and STS use XML Query. All state is in-memory.
 
 ## Start
 
@@ -172,7 +172,16 @@ curl -X PUT http://localhost:4006/dest-bucket/copy.txt \
 
 ### SQS
 
-All SQS operations use `POST /sqs/` with `Action` as a form-urlencoded parameter.
+Current AWS SDK clients use the `/sqs` endpoint shown above. SQS accepts AWS JSON 1.0 requests at `POST /sqs/` with `Content-Type: application/x-amz-json-1.0` and `X-Amz-Target: AmazonSQS.<Action>`, returning JSON results and errors. XML Query requests with an `Action` form parameter remain supported. Queue operations also accept the returned `QueueUrl` as the endpoint.
+
+```bash
+# List queues using AWS JSON 1.0
+curl -X POST http://localhost:4006/sqs/ \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/x-amz-json-1.0" \
+  -H "X-Amz-Target: AmazonSQS.ListQueues" \
+  -d '{}'
+```
 
 ```bash
 # Create queue
