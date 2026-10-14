@@ -10,6 +10,15 @@ export interface SlackCoverageEntry {
 }
 
 export const slackCoverageMatrix: SlackCoverageEntry[] = [
+  ...(["convertToPrivate", "convertToPublic"] as const).map((method) => ({
+    family: "admin.conversations",
+    method: `admin.conversations.${method}`,
+    route: `POST /api/admin.conversations.${method}`,
+    status: "partial" as const,
+    testedBy: ["channel-privacy.test.ts"],
+    notes:
+      "Admin user tokens change channel privacy, file shares, and visibility with conversion message events. Enterprise plan and organization policies are not simulated.",
+  })),
   {
     family: "events",
     method: "events.retry_simulation",

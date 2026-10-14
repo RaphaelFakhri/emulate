@@ -3,6 +3,7 @@ import type { SlackChannel, SlackFile, SlackFileShare, SlackMessage, SlackUser }
 import { buildSlackEventEnvelope, resolveSlackEventTeamId } from "../events.js";
 import { isSlackConnectChannel } from "../connect.js";
 import { getSlackStore } from "../store.js";
+import { slackRequestToken } from "../tokens.js";
 import {
   formatSlackMessage,
   generateSlackId,
@@ -112,6 +113,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
       buildSlackEventEnvelope(store, resolveSlackEventTeamId(c, store, channel.team_id), {
         ...formatSlackMessage(msg),
         channel: channel.channel_id,
+        channel_type: channel.is_im ? "im" : channel.is_mpim ? "mpim" : conversationEventPrefix(channel),
         event_ts: msg.ts,
       }),
       "slack",
@@ -135,6 +137,71 @@ export function conversationsRoutes(ctx: RouteContext): void {
       team: channel.team_id,
     });
   };
+
+  for (const [method, isPrivate] of [
+    ["convertToPrivate", true],
+    ["convertToPublic", false],
+  ] as const) {
+    app.post(`/api/admin.conversations.${method}`, async (c) => {
+      const authUser = c.get("authUser");
+      if (!authUser) return slackError(c, "not_authed");
+
+      const token = slackRequestToken(c);
+      const tokenRecord = token ? ss().tokens.findOneBy("token", token) : undefined;
+      const user = getAuthSlackUser(authUser);
+      const isUserToken = tokenRecord ? tokenRecord.token_type === "user" : token?.startsWith("xoxp-");
+      if (!isUserToken || user?.is_bot) return slackError(c, "not_allowed_token_type");
+
+      const scopeError = requireSlackScopes(c, store, ["admin.conversations:write"]);
+      if (scopeError) return scopeError;
+      if (!user?.is_admin || user.deleted) {
+        return c.json({
+          ok: false,
+          error: "missing_scope",
+          needed: "admin.conversations:write",
+          provided: (c.get("authScopes") ?? authUser.scopes ?? []).join(","),
+        });
+      }
+
+      const body = await parseSlackBody(c);
+      const channelId = typeof body.channel_id === "string" ? body.channel_id : "";
+      const channel = ss().channels.findOneBy("channel_id", channelId);
+      if (!channel) return slackError(c, "channel_not_found");
+      if (
+        isDirectConversation(channel) ||
+        channel.is_private === isPrivate ||
+        (isPrivate && isGeneralChannel(channel))
+      ) {
+        return slackError(c, isPrivate ? "channel_type_not_supported" : "not_supported");
+      }
+
+      const updated = ss().channels.update(channel.id, { is_private: isPrivate, is_channel: !isPrivate })!;
+      for (const file of ss().files.all()) {
+        if (!file.channels.includes(channelId) && !file.groups.includes(channelId)) continue;
+        const channels = file.channels.filter((id) => id !== channelId);
+        const groups = file.groups.filter((id) => id !== channelId);
+        (isPrivate ? groups : channels).push(channelId);
+        const shares = { ...file.shares };
+        const source = isPrivate ? "public" : "private";
+        const target = isPrivate ? "private" : "public";
+        const channelShares = shares[source]?.[channelId];
+        if (channelShares) {
+          shares[source] = { ...shares[source] };
+          delete shares[source]![channelId];
+          if (Object.keys(shares[source]!).length === 0) delete shares[source];
+          shares[target] = { ...shares[target], [channelId]: channelShares };
+        }
+        ss().files.update(file.id, { channels, groups, shares, is_public: channels.length > 0 });
+      }
+      await insertAndDispatchMessageEvent(c, updated, user.user_id, {
+        subtype: isPrivate ? "channel_convert_to_private" : "channel_convert_to_public",
+        text: isPrivate
+          ? "made this channel *private*. Now, it can only be viewed or joined by invitation."
+          : "made this channel *public*. Any member in this workspace can see and join it.",
+      });
+      return slackOk(c, {});
+    });
+  }
 
   // conversations.list
   app.post("/api/conversations.list", async (c) => {

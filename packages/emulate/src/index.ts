@@ -126,6 +126,13 @@ Slack message limits:
   Slack text fields are limited to 40,000 Unicode characters. Longer text is truncated safely,
   and successful Web API responses include message_truncated warning metadata.
 
+Slack channel privacy:
+  POST /api/admin.conversations.convertToPrivate and convertToPublic accept channel_id.
+  Use a user token for a seeded admin; bot/test tokens and non-admin users are rejected.
+  Strict scopes require admin.conversations:write. Conversions update visibility and emit conversion messages.
+  DMs, MPIMs, and repeated conversions are rejected; #general cannot become private.
+  Enterprise plan, organization installation, and channel-management policies are not simulated.
+
 Slack Connect fixtures:
   Seed slack.users[].team_id to model an external author; is_stranger is an optional fixture flag.
   Channels with external members report is_ext_shared and is_shared; events include is_ext_shared_channel.

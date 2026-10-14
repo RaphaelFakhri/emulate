@@ -1072,6 +1072,23 @@ Modal opens and pushes accept `trigger_id` or `interactivity_pointer` from an in
 - `POST /api/bots.info` - bot info
 - `POST /services/:teamId/:botId/:webhookId` - incoming webhook with text or rich payload fields
 
+### Channel privacy conversions
+
+`POST /api/admin.conversations.convertToPrivate` and `POST /api/admin.conversations.convertToPublic` accept `channel_id`. Use a user token belonging to a seeded admin; bot and test tokens return `not_allowed_token_type`, and non-admin users return `missing_scope`. With `slack.strict_scopes: true`, the token also needs `admin.conversations:write`. For example:
+
+```yaml
+slack:
+  tokens:
+    - token: local-admin-user
+      type: user
+      user: admin
+      scopes: [admin.conversations:write, channels:read, groups:read]
+```
+
+Conversions preserve the channel ID, members, and history, update visibility in conversation and file reads, and append a `message` with subtype `channel_convert_to_private` or `channel_convert_to_public`. Event callbacks include the acting user and the new `channel_type` (`group` or `channel`). Admins need not belong to the channel. DMs, MPIMs, and repeated conversions are rejected; `#general` cannot become private.
+
+These methods operate on the emulated workspace without Slack's Enterprise plan or organization-wide installation requirements. Enterprise roles, channel-management policies, and MPIM conversion are not simulated.
+
 ### Slack Connect fixtures
 
 Seed a user with a different `team_id` to test messages from another workspace. `users.info` and `users.list` return that user's workspace and `is_stranger` flag. Omitted user teams default to the emulated workspace. `is_stranger` defaults to `false` and can be seeded to model a user outside the app's visible shared channels.
@@ -1143,9 +1160,9 @@ When a supported Slack write emits an `event_callback`, the payload contains the
 
 To test bot handlers, invite an installed app's `bot_user_id` with `conversations.invite`, subscribe to `app_mention`, then post text containing `<@BOT_USER_ID>` with `chat.postMessage`. Channel mentions produce one callback per mentioned app, with outer `api_app_id`, inner `event_ts`, and the original message and thread identity. DMs and MPIMs use `message` events.
 
-Slack scope checks are relaxed by default so local tests can use simple bearer tokens. Set `slack.strict_scopes: true` in seed config to make supported Web API methods return Slack-style `missing_scope` errors with `needed` and `provided` fields. Strict mode checks `chat:write`, `channels:read`, `channels:history`, `channels:join`, `channels:manage`, `channels:write`, `groups:read`, `groups:history`, `groups:write`, `im:read`, `im:history`, `im:write`, `mpim:read`, `mpim:history`, `mpim:write`, `users:read`, `users:read.email`, `users.profile:read`, `users.profile:write`, `users:write`, `files:read`, `files:write`, `pins:read`, `pins:write`, `bookmarks:read`, `bookmarks:write`, `reactions:read`, `reactions:write`, and `team:read`. Slack lists no method-specific scopes for `views.publish`, `views.open`, `views.update`, or `views.push`, so the emulator requires auth but does not add strict-scope checks for those methods.
+Slack scope checks are relaxed by default so local tests can use simple bearer tokens. Set `slack.strict_scopes: true` in seed config to make supported Web API methods return Slack-style `missing_scope` errors with `needed` and `provided` fields. Strict mode checks `chat:write`, `channels:read`, `channels:history`, `channels:join`, `channels:manage`, `channels:write`, `groups:read`, `groups:history`, `groups:write`, `im:read`, `im:history`, `im:write`, `mpim:read`, `mpim:history`, `mpim:write`, `users:read`, `users:read.email`, `users.profile:read`, `users.profile:write`, `users:write`, `files:read`, `files:write`, `pins:read`, `pins:write`, `bookmarks:read`, `bookmarks:write`, `reactions:read`, `reactions:write`, `team:read`, and `admin.conversations:write`. Slack lists no method-specific scopes for `views.publish`, `views.open`, `views.update`, or `views.push`, so the emulator requires auth but does not add strict-scope checks for those methods.
 
-Current Slack limits: Slack Connect invitation and approval flows, per-workspace channel settings, Enterprise Grid admin APIs, Audit Logs API, SCIM, Legal Holds, Socket Mode, slash commands, shortcuts, and interaction types other than button actions and modal submissions, user groups, reminders, stars, calls, canvases, lists, functions, workflows, chat streaming, legacy `files.upload`, exact rate limiting, and paid-plan behavior are not implemented.
+Current Slack limits: Slack Connect invitation and approval flows, per-workspace channel settings, other Enterprise Grid admin APIs, Audit Logs API, SCIM, Legal Holds, Socket Mode, slash commands, shortcuts, and interaction types other than button actions and modal submissions, user groups, reminders, stars, calls, canvases, lists, functions, workflows, chat streaming, legacy `files.upload`, exact rate limiting, and paid-plan behavior are not implemented.
 
 ## Linear API
 
