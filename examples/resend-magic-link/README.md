@@ -14,6 +14,8 @@ No real emails are sent. The emulator captures every email in-memory so you can 
 
 Pending sign-in and session cookies use AES-256-GCM authenticated encryption with a server-only `AUTH_SECRET`. The pending cookie keeps the code private and binds it to the email and ten-minute expiry. Cookie names are authenticated so a pending challenge cannot be used as a session. Sessions expire after 24 hours, and both expiry times are checked by the server. Unsigned, modified, malformed, and expired cookies are rejected.
 
+This example does not limit verification attempts, and an incorrect code leaves the challenge valid until expiry. Production implementations should rate-limit code requests and verification, and enforce attempt limits using server-side state so replaying an earlier cookie cannot reset the count.
+
 The Resend SDK reads `RESEND_BASE_URL` from the environment at module load time. In `next.config.ts`, this is set to `http://localhost:3000/emulate/resend` so all email traffic hits the local emulator instead of `https://api.resend.com`.
 
 ## Getting started
