@@ -15,12 +15,14 @@ export function resolveUploadTarget(c: Context): UploadTarget | Response {
   const storeId = resolveStoreId(c);
   if (!storeId) return forbidden(c);
 
-  const rawPathname = c.req.query("pathname")?.replace(/^\//, "");
+  // Check // before stripping the leading slash so "//a.txt" is still rejected.
+  const queryPathname = c.req.query("pathname");
+  if (queryPathname?.includes("//")) {
+    return blobErr(c, 400, "bad_request", "pathname cannot contain //");
+  }
+  const rawPathname = queryPathname?.replace(/^\//, "");
   if (!rawPathname) {
     return blobErr(c, 400, "bad_request", "pathname is required");
-  }
-  if (rawPathname.includes("//")) {
-    return blobErr(c, 400, "bad_request", "pathname cannot contain //");
   }
 
   const access = c.req.header("x-vercel-blob-access") ?? "public";
