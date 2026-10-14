@@ -36,7 +36,7 @@ Stripe webhooks configured with a secret include a `Stripe-Signature` header sig
 
 Slack event callbacks use `X-Slack-Request-Timestamp` and `X-Slack-Signature` when `slack.signing_secret` is configured. The signature is an HMAC-SHA256 over `v0:<timestamp>:<raw-body>`; configure the receiver with the same secret and verify against the unparsed request body. Existing event subscriptions remain unsigned when the secret is absent or empty.
 
-Resend `POST /emails` and `POST /emails/batch` support 24-hour `Idempotency-Key` replay, returning the original email IDs without duplicate emails or webhooks.
+Resend `POST /emails` and `POST /emails/batch` support 24-hour `Idempotency-Key` replay, returning the original email IDs without duplicate emails or webhooks. Optional `resend.allowlist` restrictions let tests reject recipients while `resend.send_attempts` records accepted and rejected sends.
 
 ## Custom emulators
 
@@ -1163,6 +1163,27 @@ To test bot handlers, invite an installed app's `bot_user_id` with `conversation
 Slack scope checks are relaxed by default so local tests can use simple bearer tokens. Set `slack.strict_scopes: true` in seed config to make supported Web API methods return Slack-style `missing_scope` errors with `needed` and `provided` fields. Strict mode checks `chat:write`, `channels:read`, `channels:history`, `channels:join`, `channels:manage`, `channels:write`, `groups:read`, `groups:history`, `groups:write`, `im:read`, `im:history`, `im:write`, `mpim:read`, `mpim:history`, `mpim:write`, `users:read`, `users:read.email`, `users.profile:read`, `users.profile:write`, `users:write`, `files:read`, `files:write`, `pins:read`, `pins:write`, `bookmarks:read`, `bookmarks:write`, `reactions:read`, `reactions:write`, `team:read`, and `admin.conversations:write`. Slack lists no method-specific scopes for `views.publish`, `views.open`, `views.update`, or `views.push`, so the emulator requires auth but does not add strict-scope checks for those methods.
 
 Current Slack limits: Slack Connect invitation and approval flows, per-workspace channel settings, other Enterprise Grid admin APIs, Audit Logs API, SCIM, Legal Holds, Socket Mode, slash commands, shortcuts, and interaction types other than button actions and modal submissions, user groups, reminders, stars, calls, canvases, lists, functions, workflows, chat streaming, legacy `files.upload`, exact rate limiting, and paid-plan behavior are not implemented.
+
+## Resend API
+
+### Recipient restrictions and send attempts
+
+Set `resend.allowlist` in seed config to test recipient rejection:
+
+```yaml
+resend:
+  allowlist:
+    - allowed@example.com
+    - copy@example.com
+```
+
+Omitting `allowlist` accepts every recipient; `allowlist: []` rejects every recipient. Every address in `to`, `cc`, and `bcc` must be listed. Matching ignores surrounding whitespace and letter case; entries are individual addresses, with no wildcard or domain matching. This is a local testing control, independent of Resend's domain verification and account restrictions.
+
+A rejected send returns `403 validation_error` naming the rejected addresses and configured allowlist. No email ID, email record, idempotency record, or webhook is created. A batch is rejected as a whole if any recipient is disallowed. Retrying a rejected request, even with the same idempotency key, creates a new attempt. Replaying an accepted idempotent request returns its original response even if the allowlist has since changed.
+
+Validated sends append one record per email to the `resend.send_attempts` store collection, including emails in a rejected batch. Each record contains `from`, `to`, `cc`, `bcc`, `subject`, `idempotency_key` (or `null`), and the store's `id`, `created_at`, and `updated_at`. Message bodies are not copied into attempts. Malformed requests, invalid or conflicting idempotency keys, and idempotency replays do not append attempts.
+
+Read attempts with `getResendStore(store).sendAttempts.all()` from `@emulators/resend`, or inspect the persisted state. Shared adapter snapshots use the key `resend:resend.send_attempts`. Attempts and recipient restrictions survive saved-state restoration, including rejected sends. There is no additional Resend API endpoint for attempts. A rejected send has an attempt without an email; a send that never happened has neither.
 
 ## Linear API
 

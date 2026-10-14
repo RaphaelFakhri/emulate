@@ -86,6 +86,9 @@ Google OIDC:
 
 Resend API coverage:
   POST /emails and POST /emails/batch support 24-hour Idempotency-Key replay without duplicate emails or webhooks.
+  Optional resend.allowlist restricts to/cc/bcc recipients; [] rejects all, and omission accepts all.
+  Rejected batches create no emails or webhooks. Validated sends record resend.send_attempts in saved state.
+  Idempotency replays and malformed requests do not add attempts; rejected sends can be retried with the same key.
 
 Microsoft OAuth coverage:
   Refresh tokens are bound to the issuing client and require its client_id and client_secret, or client_secret_basic.
