@@ -75,6 +75,14 @@ AWS API coverage:
   S3 uploads and downloads preserve arbitrary binary payloads, including raw byte lengths and ETags.
   SQS supports current AWS SDK clients using AWS JSON 1.0 at /sqs, alongside XML Query requests.
   Queue operations also accept the returned QueueUrl as the endpoint.
+  Cognito User Pools use /cognito-idp and Identity Pools use /cognito-identity with the AWS SDK v3.
+  Seed aws.cognito.user_pools and identity_pools; defaults are us-east-1_emulate and app client emulateclient.
+  Sign-up, confirmation, password/reset/refresh flows, new-password challenges, and admin user operations are supported.
+  Local confirmation codes default to 123456 and appear at /_inspector?tab=cognito; no email/SMS is sent.
+  RS256 tokens, discovery, and JWKS use the issuer BASE_URL/cognito-idp/USER_POOL_ID.
+  That issuer serves /oauth2/authorize (local user picker), /oauth2/token (code/refresh + S256 PKCE), and /oauth2/userInfo.
+  Identity Pools support GetId and GetCredentialsForIdentity with validated User Pool ID tokens.
+  SRP, MFA, external federation, pool/client management APIs, and IAM policy/signature evaluation are not simulated.
 
 Google Calendar discovery:
   GET /discovery/v1/apis/calendar/v3/rest returns the public discovery document for the emulated Calendar v3 surface.
