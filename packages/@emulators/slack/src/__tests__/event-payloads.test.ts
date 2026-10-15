@@ -168,6 +168,7 @@ describe("Slack event payload fidelity", () => {
       botToken,
     );
     expect(edited.message).toMatchObject(expected);
+    expect(await call(setup, "chat.update", { channel, ts: posted.ts }, botToken)).toMatchObject({ error: "no_text" });
     const history = await call(setup, "conversations.history", { channel });
     const replies = await call(setup, "conversations.replies", { channel, ts: parent.ts });
     expect(history.messages.find((message: any) => message.ts === root.ts)).toMatchObject(expected);

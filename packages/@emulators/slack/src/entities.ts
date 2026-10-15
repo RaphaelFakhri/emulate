@@ -41,6 +41,7 @@ export type SlackManualPresence = "auto" | "away";
 export interface SlackUser extends Entity {
   user_id: string;
   team_id: string;
+  is_stranger?: boolean;
   name: string;
   real_name: string;
   email: string;
@@ -57,6 +58,7 @@ export interface SlackUser extends Entity {
 export interface SlackChannel extends Entity {
   channel_id: string;
   team_id: string;
+  is_ext_shared?: boolean;
   name: string;
   is_channel: boolean;
   is_private: boolean;
@@ -77,6 +79,7 @@ export interface SlackChannel extends Entity {
 export type SlackJsonObject = Record<string, unknown>;
 
 export interface SlackMessage extends Entity {
+  interaction_app_id?: string;
   ts: string;
   channel_id: string;
   user: string;
@@ -171,6 +174,7 @@ export interface SlackOAuthApp extends Entity {
   bot_id?: string;
   bot_user_id?: string;
   bot_name?: string;
+  interactivity_url?: string;
 }
 
 export interface SlackInstallation extends Entity {
@@ -342,4 +346,25 @@ export interface SlackViewTrigger extends Entity {
   expires_at: number;
   used: boolean;
   view_id?: string;
+}
+
+export interface SlackResponseUrl extends Entity {
+  response_id: string;
+  app_id: string;
+  bot_id: string;
+  bot_user_id: string;
+  channel_id: string;
+  message_ts: string;
+  user_id: string;
+  is_ephemeral: boolean;
+  expires_at: number;
+  uses: number;
+}
+
+export interface SlackInteractionDelivery extends Entity {
+  app_id: string;
+  type: string;
+  payload: SlackJsonObject;
+  status_code: number | null;
+  success: boolean;
 }

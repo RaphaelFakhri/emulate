@@ -365,7 +365,7 @@ describe("Vercel Blob direct HTTP behavior", () => {
     expect(await response.text()).toBe("");
   });
 
-  it.fails("rejects an empty deletion batch without changing stored content", async () => {
+  it("rejects an empty deletion batch without changing stored content", async () => {
     const response = await fetch(`${apiUrl}/delete`, {
       method: "POST",
       headers: { ...headers, "content-type": "application/json" },
@@ -380,7 +380,7 @@ describe("Vercel Blob direct HTTP behavior", () => {
     });
   });
 
-  it.fails("rejects malformed deletion JSON without changing stored content", async () => {
+  it("rejects malformed deletion JSON without changing stored content", async () => {
     const response = await fetch(`${apiUrl}/delete`, {
       method: "POST",
       headers: { ...headers, "content-type": "application/json" },
@@ -397,7 +397,7 @@ describe("Vercel Blob direct HTTP behavior", () => {
     });
   });
 
-  it.fails("copies to a new pathname when ifMatch matches the source ETag", async () => {
+  it("copies to a new pathname when ifMatch matches the source ETag", async () => {
     const response = await fetch(
       `${apiUrl}?${new URLSearchParams({ pathname: "http-copy/new.bin", fromUrl: copySource.url })}`,
       { method: "PUT", headers: { ...headers, "x-if-match": copySource.etag } },
@@ -408,7 +408,7 @@ describe("Vercel Blob direct HTTP behavior", () => {
     expect(await (await fetch(copied.url)).text()).toBe("source");
   });
 
-  it.fails("rejects conditional copy when only the destination ETag matches", async () => {
+  it("rejects conditional copy when only the destination ETag matches", async () => {
     const response = await fetch(
       `${apiUrl}?${new URLSearchParams({ pathname: copyDestination.pathname, fromUrl: copySource.url })}`,
       { method: "PUT", headers: { ...headers, "x-if-match": copyDestination.etag } },
@@ -429,7 +429,7 @@ describe("Vercel Blob direct HTTP behavior", () => {
     });
   });
 
-  it.fails("paginates folded listings that contain only folders", async () => {
+  it("paginates folded listings that contain only folders", async () => {
     const first = await list({ prefix: "http-folded/", mode: "folded", limit: 1, token });
     expect(first.blobs).toEqual([]);
     expect(first.folders).toEqual(["http-folded/a/"]);
@@ -441,7 +441,7 @@ describe("Vercel Blob direct HTTP behavior", () => {
     expect(second.hasMore).toBe(false);
   });
 
-  it.fails("uses the Content-Type header for an extensionless upload", async () => {
+  it("uses the Content-Type header for an extensionless upload", async () => {
     const response = await fetch(`${apiUrl}?pathname=http-metadata%2Fextensionless`, {
       method: "PUT",
       headers: { ...headers, "content-type": "application/x-test-fixture" },
@@ -461,7 +461,7 @@ describe("Vercel Blob direct HTTP behavior", () => {
     });
   });
 
-  it.fails("clamps modern cache max-age to at least one minute", async () => {
+  it("clamps modern cache max-age to at least one minute", async () => {
     const response = await fetch(`${apiUrl}?pathname=http-cache%2Fminimum.bin`, {
       method: "PUT",
       headers: { ...headers, "x-cache-control-max-age": "0" },
@@ -474,7 +474,7 @@ describe("Vercel Blob direct HTTP behavior", () => {
     expect(await (await fetch(uploaded.url)).text()).toBe("bytes");
   });
 
-  it.fails("removes a leading slash from the uploaded pathname", async () => {
+  it("removes a leading slash from the uploaded pathname", async () => {
     const response = await fetch(`${apiUrl}?pathname=%2Fhttp-paths%2Fleading.bin`, {
       method: "PUT",
       headers,
@@ -489,7 +489,7 @@ describe("Vercel Blob direct HTTP behavior", () => {
     });
   });
 
-  it.fails("creates a multipart session without publishing a blob", async () => {
+  it("creates a multipart session without publishing a blob", async () => {
     const response = await fetch(`${apiUrl}/mpu?pathname=http-multipart%2Fsession.bin`, {
       method: "POST",
       headers: { ...headers, "x-mpu-action": "create" },

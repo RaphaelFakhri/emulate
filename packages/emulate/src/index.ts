@@ -81,9 +81,14 @@ Google Calendar discovery:
 
 Google OIDC:
   Discovery advertises RS256 ID tokens, and GET /oauth2/v3/certs returns the RSA public key used to verify them.
+  Set google.strict_scopes: true in seed config to validate issued access tokens, expiry, revocation, and method scopes.
+  Strict mode returns Google-style 401/403 errors and limits userinfo claims; bearer-token defaults remain permissive.
 
 Resend API coverage:
   POST /emails and POST /emails/batch support 24-hour Idempotency-Key replay without duplicate emails or webhooks.
+  Optional resend.allowlist restricts to/cc/bcc recipients; [] rejects all, and omission accepts all.
+  Rejected batches create no emails or webhooks. Validated sends record resend.send_attempts in saved state.
+  Idempotency replays and malformed requests do not add attempts; rejected sends can be retried with the same key.
 
 Microsoft OAuth coverage:
   Refresh tokens are bound to the issuing client and require its client_id and client_secret, or client_secret_basic.
@@ -107,11 +112,40 @@ Configuration:
 Twilio API coverage:
   Accounts, API keys, phone numbers, Messaging, Verify, Voice, Conversations, webhooks, simulators, and inspector.
 
+Slack interactivity:
+  Configure slack.oauth_apps[].interactivity_url and slack.signing_secret for signed button and modal callbacks.
+  POST /_slack/simulate/block-actions clicks a stored button; POST /_slack/simulate/view-submission submits a modal.
+  Button response URLs support private/public replies and source updates for five uses within 30 minutes.
+  Modal acknowledgements can close, clear, update, push, or show errors. Triggers expire in 3 seconds by default;
+  slack.view_trigger_ttl_seconds can extend their lifetime for local tests.
+
+Slack app lifecycle:
+  POST /api/apps.uninstall accepts client_id, client_secret, and a user token or configured development token.
+  It revokes the app's OAuth credentials in that workspace and emits app_uninstalled and tokens_revoked.
+  Revoked tokens return token_revoked even with permissive authentication. Granular bot tokens return no_permission.
+  A new OAuth installation issues fresh credentials; other apps and workspaces are unaffected.
+
 Slack message limits:
   Slack text fields are limited to 40,000 Unicode characters. Longer text is truncated safely,
   and successful Web API responses include message_truncated warning metadata.
 
+Slack channel privacy:
+  POST /api/admin.conversations.convertToPrivate and convertToPublic accept channel_id.
+  Use a user token for a seeded admin; bot/test tokens and non-admin users are rejected.
+  Strict scopes require admin.conversations:write. Conversions update visibility and emit conversion messages.
+  DMs, MPIMs, and repeated conversions are rejected; #general cannot become private.
+  Enterprise plan, organization installation, and channel-management policies are not simulated.
+
+Slack Connect fixtures:
+  Seed slack.users[].team_id to model an external author; is_stranger is an optional fixture flag.
+  Channels with external members report is_ext_shared and is_shared; events include is_ext_shared_channel.
+  App mentions carry the external author's user_team/source_team while the envelope keeps the receiving team.
+  Seed slack.channels[].is_ext_shared for existing shares. Invitation/approval and workspace unlink flows are not simulated.
+
 Slack event callbacks:
+  POST /_slack/simulate/event-retry accepts event_id and optional reason (default http_timeout).
+  It resends the latest recorded delivery with increasing retry headers and a fresh Slack signature when configured.
+  Retries are explicit, target one original subscription, and require retained in-memory delivery history.
   Event callbacks include token, api_app_id, authorizations, team_id, event_id, and event_time.
   The team comes from the presented token's installation, or affected resource or seeded team
   for development tokens. Incoming webhooks use their webhook or target channel team.

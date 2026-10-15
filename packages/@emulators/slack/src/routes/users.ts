@@ -204,6 +204,7 @@ function formatUser(u: SlackUser, includeEmail = true) {
   return {
     id: u.user_id,
     team_id: u.team_id,
+    is_stranger: u.is_stranger ?? false,
     name: u.name,
     real_name: u.real_name,
     is_admin: u.is_admin,

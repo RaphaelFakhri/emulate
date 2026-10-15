@@ -30,6 +30,15 @@ export function chatRoutes(ctx: RouteContext): void {
     ss()
       .channels.all()
       .find((ch) => !ch.is_im && !ch.is_mpim && ch.name === channel);
+  const messageAppId = (c: Context) => {
+    const token = c.get("authToken");
+    const record = token ? ss().tokens.findOneBy("token", token) : undefined;
+    return (
+      record?.app_id ??
+      (record?.client_id ? ss().oauthApps.findOneBy("client_id", record.client_id)?.app_id : undefined) ??
+      (ss().oauthApps.all().length === 1 ? ss().oauthApps.all()[0]?.app_id : undefined)
+    );
+  };
   const getAuthSlackUser = (authUser: { login: string }) =>
     ss().users.findOneBy("user_id", authUser.login) ?? ss().users.findOneBy("name", authUser.login);
   const getAuthUserId = (authUser: { login: string }) => getAuthSlackUser(authUser)?.user_id ?? authUser.login;
@@ -181,6 +190,7 @@ export function chatRoutes(ctx: RouteContext): void {
     const botId = authToken?.token_type === "bot" ? (authToken.bot_id ?? bot?.bot_id) : undefined;
     const msg = ss().messages.insert({
       ts,
+      interaction_app_id: messageAppId(c),
       channel_id: ch.channel_id,
       user: authUserId,
       text: normalizedText.text,
@@ -257,6 +267,7 @@ export function chatRoutes(ctx: RouteContext): void {
     const ts = generateTs();
     ss().ephemeralMessages.insert({
       ts,
+      interaction_app_id: messageAppId(c),
       channel_id: ch.channel_id,
       user: authUserId,
       target_user: targetUser.user_id,
@@ -300,10 +311,6 @@ export function chatRoutes(ctx: RouteContext): void {
     if (!isAuthoredByUser(msg, authUser)) return slackError(c, "cant_update_message");
 
     const updates: Partial<SlackMessage> = { ...richMessage.fields };
-    if (msg.bot_profile) {
-      updates.bot_id = msg.bot_id;
-      updates.app_id = msg.app_id;
-    }
     if (hasText) {
       updates.text = normalizedText!.text;
       if (!richMessage.providedFields.includes("blocks")) updates.blocks = undefined;
@@ -312,6 +319,10 @@ export function chatRoutes(ctx: RouteContext): void {
 
     if (!hasText && Object.keys(updates).length === 0) {
       return slackError(c, "no_text");
+    }
+    if (msg.bot_id) {
+      updates.bot_id = msg.bot_id;
+      updates.app_id = msg.app_id;
     }
 
     const authUserId = getAuthUserId(authUser);
