@@ -1,6 +1,39 @@
 # Changelog
 
+## 0.12.3
+
 <!-- release:start -->
+
+### New Features
+
+- Added **AWS Cognito** User Pools, signed tokens, local OAuth flows, and Identity Pool credentials with SDK coverage
+- Added **Slack interactivity** with signed button and modal callbacks, response URLs, and modal acknowledgements
+- Added **Slack lifecycle and event simulation** for app uninstall, event retries, Slack Connect fixtures, channel privacy changes, and app-mention callbacks (#307)
+- Added **Resend recipient restrictions** with persisted send attempts while preserving idempotency and batch behavior
+
+### Improvements
+
+- Added **Google OAuth credential validation** with opt-in token and scope checks that preserve permissive defaults
+- Added **SQS JSON protocol** support for current AWS SDK clients (#305)
+- Improved **Slack event payloads** with routing fields, bot identity, and bot departure events
+- Added **GitHub check-run pagination** (#308)
+
+### Bug Fixes
+
+- Fixed **GitHub check App identity** preservation (#306)
+- Fixed **Vercel Blob direct HTTP behavior** for uploads, listings, deletes, and multipart requests (#304)
+- Protected **Resend authentication cookies** in the magic-link example and documented authentication rate limiting (#303)
+
+### Contributors
+
+- @ctate
+- @scotttrinh
+- @ikatkov
+- @marcusschiesser
+- @aneiasovbb
+
+<!-- release:end -->
+
 ## 0.12.2
 
 ### Improvements
@@ -14,8 +47,6 @@
 ### Contributors
 
 - @scotttrinh
-
-<!-- release:end -->
 
 ## 0.12.1
 
