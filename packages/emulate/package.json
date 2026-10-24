@@ -54,26 +54,28 @@
     "lint": "eslint src"
   },
   "dependencies": {
+    "@modelcontextprotocol/server": "^2.3.1",
     "commander": "^14",
     "picocolors": "^1.1.1",
     "yaml": "^2"
   },
   "devDependencies": {
+    "@emulators/apple": "workspace:*",
+    "@emulators/aws": "workspace:*",
+    "@emulators/clerk": "workspace:*",
     "@emulators/core": "workspace:*",
     "@emulators/github": "workspace:*",
-    "@emulators/apple": "workspace:*",
-    "@emulators/microsoft": "workspace:*",
-    "@emulators/okta": "workspace:*",
-    "@emulators/aws": "workspace:*",
     "@emulators/google": "workspace:*",
-    "@emulators/mongoatlas": "workspace:*",
-    "@emulators/slack": "workspace:*",
-    "@emulators/vercel": "workspace:*",
-    "@emulators/resend": "workspace:*",
-    "@emulators/stripe": "workspace:*",
-    "@emulators/clerk": "workspace:*",
     "@emulators/linear": "workspace:*",
+    "@emulators/microsoft": "workspace:*",
+    "@emulators/mongoatlas": "workspace:*",
+    "@emulators/okta": "workspace:*",
+    "@emulators/resend": "workspace:*",
+    "@emulators/slack": "workspace:*",
+    "@emulators/stripe": "workspace:*",
     "@emulators/twilio": "workspace:*",
+    "@emulators/vercel": "workspace:*",
+    "@modelcontextprotocol/client": "^2.3.1",
     "tsup": "^8",
     "typescript": "^5.7"
   }
