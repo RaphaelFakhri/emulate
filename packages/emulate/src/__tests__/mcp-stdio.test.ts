@@ -82,6 +82,15 @@ export default {
         expect((await client.listTools()).tools.map((tool) => tool.name)).toContain("start");
         const failed = await client.callTool({ name: "start", arguments: { port: "invalid" } });
         expect(failed.isError).toBe(true);
+        if (watch) {
+          const brokenConfig = join(directory, "broken.mjs");
+          await writeFile(brokenConfig, 'throw new Error("startup failed");');
+          const failedWatch = await client.callTool({
+            name: "start",
+            arguments: { config: brokenConfig, watch: true },
+          });
+          expect(failedWatch.isError).toBe(true);
+        }
         const result = await client.callTool({ name: "start", arguments: { config, watch } });
         expect(result.isError, JSON.stringify(result)).not.toBe(true);
         expect(await (await fetch(url, { signal: AbortSignal.timeout(3000) })).json()).toEqual({ count: 7 });

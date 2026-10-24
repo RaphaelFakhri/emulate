@@ -70,7 +70,10 @@ function discover(program: Command): CommandTool[] {
   return tools;
 }
 
-function result(data: Record<string, unknown>, text: string): CallToolResult {
+function result(
+  data: Record<string, unknown>,
+  text: string,
+): CallToolResult & { structuredContent: Record<string, unknown> } {
   return { content: [{ type: "text", text }], structuredContent: data };
 }
 
@@ -105,7 +108,7 @@ export async function startMcpServer(): Promise<void> {
       }
       if (name === "start" && active)
         throw new Error("An emulator run is already active. Call stop before starting again.");
-      let captured: CallToolResult | undefined;
+      let captured: ReturnType<typeof result> | undefined;
       const program = createProgram({
         nonInteractive: true,
         output: (data, text) => {
@@ -140,6 +143,8 @@ export async function startMcpServer(): Promise<void> {
       await program.parseAsync(argv, { from: "user" });
       if (name === "start" && !started) throw new Error("Command start returned no owned run");
       if (!captured) throw new Error(`Command ${name} returned no structured result`);
+      if (name === "start" && captured.structuredContent?.ready === false)
+        throw new Error(String(captured.structuredContent.error ?? "Emulator startup failed"));
       active = started ?? active;
       return captured;
     } catch (error) {

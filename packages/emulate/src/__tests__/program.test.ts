@@ -64,9 +64,10 @@ describe("shared command execution", () => {
     await createProgram().parseAsync(["init", "--service", "resend"], { from: "user" });
     expect(stdout.mock.calls).toEqual([["Created emulate.config.yaml\n\nRun 'npx emulate' to start the emulator."]]);
     stdout.mockClear();
+    const write = vi.spyOn(process.stdout, "write").mockReturnValue(true);
     await createProgram().parseAsync(["list-services", "--json"], { from: "user" });
-    expect(stdout).toHaveBeenCalledTimes(1);
-    const result = JSON.parse(stdout.mock.calls[0][0]);
+    expect(write).toHaveBeenCalledTimes(1);
+    const result = JSON.parse(String(write.mock.calls[0][0]));
     expect(result.services).toEqual(expect.arrayContaining([expect.objectContaining({ name: "resend" })]));
     expect(result).not.toHaveProperty("tokens");
   });

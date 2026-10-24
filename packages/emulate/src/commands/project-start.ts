@@ -1,4 +1,4 @@
-import { fork, spawnSync, type ChildProcess } from "node:child_process";
+import { fork, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { resolve, dirname } from "node:path";
 import type { CommandContext } from "../program.js";
@@ -114,29 +114,8 @@ export async function projectStartCommand(
     return run;
   }
   async function setupPortless(aliases: PortlessAlias[]) {
-    if (context.nonInteractive) {
-      if (spawnSync("portless", ["--version"], { stdio: "ignore" }).status !== 0)
-        throw new Error("portless is required but not installed. Run: npm i -g portless");
-      if (spawnSync("portless", ["list"], { stdio: "ignore" }).status !== 0)
-        throw new Error("portless proxy is not running. Start it with: portless proxy start");
-    } else await ensurePortless({ throwOnFailure: true });
-    if (!diagnosticsToStderr) {
-      registerAliases(aliases);
-      return;
-    }
-    const registered: PortlessAlias[] = [];
-    try {
-      for (const alias of aliases) {
-        const result = spawnSync("portless", ["alias", alias.name, String(alias.port), "--force"], {
-          stdio: ["ignore", process.stderr, process.stderr],
-        });
-        if (result.status !== 0) throw new Error(`Failed to register portless alias: ${alias.name} -> ${alias.port}`);
-        registered.push(alias);
-      }
-    } catch (error) {
-      removeAliases(registered);
-      throw error;
-    }
+    await ensurePortless({ throwOnFailure: true, nonInteractive: context.nonInteractive });
+    registerAliases(aliases, diagnosticsToStderr);
   }
   const target = options.generatedSecretsFile
     ? await preflightGeneratedSecretsFile(options.generatedSecretsFile)

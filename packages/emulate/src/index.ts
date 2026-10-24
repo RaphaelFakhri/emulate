@@ -1,7 +1,12 @@
 import { CommanderError } from "commander";
 import { createProgram } from "./program.js";
 
+const write = process.stdout.write.bind(process.stdout);
 const program = createProgram();
+program.hook("preAction", (_program, command) => {
+  if (program.opts().json && command.name() !== "mcp")
+    process.stdout.write = process.stderr.write.bind(process.stderr) as typeof process.stdout.write;
+});
 
 program
   .command("mcp")
@@ -16,7 +21,7 @@ try {
   const exitCode = error instanceof CommanderError ? error.exitCode : 1;
   if (exitCode) {
     const message = error instanceof Error ? error.message : String(error);
-    if (program.opts().json) console.log(JSON.stringify({ error: message }));
+    if (program.opts().json) write(`${JSON.stringify({ error: message })}\n`);
     else console.error(message);
   }
   process.exitCode = exitCode;

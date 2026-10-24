@@ -16,9 +16,11 @@ export interface CommandContext {
 export function createProgram(context: CommandContext = {}): Command {
   const defaultPort = process.env.EMULATE_PORT ?? process.env.PORT ?? "4000";
   const program = new Command();
+  const write = process.stdout.write.bind(process.stdout);
   const output = (data: Record<string, unknown>, text: string) => {
     if (context.output) context.output(data, text);
-    else console.log(program.opts().json ? JSON.stringify(data) : text);
+    else if (program.opts().json) write(`${JSON.stringify(data)}\n`);
+    else console.log(text);
   };
   if (context.output) program.configureOutput({ writeOut: (text) => process.stderr.write(text) });
 
