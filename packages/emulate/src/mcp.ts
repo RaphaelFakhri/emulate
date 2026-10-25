@@ -1,14 +1,31 @@
-import { Writable } from "node:stream";
+import { createInterface } from "node:readline";
 import type { Command, Option } from "commander";
-import { Server, type CallToolResult, type Tool } from "@modelcontextprotocol/server";
-import { serveStdio, StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import { createProgram } from "./program.js";
 
 declare const PKG_VERSION: string;
 
 type Run = { close(): Promise<void> };
+type Tool = {
+  name: string;
+  description: string;
+  inputSchema: {
+    type: "object";
+    properties: Record<string, unknown>;
+    additionalProperties: false;
+    required?: string[];
+  };
+};
+type CallToolResult = {
+  content: Array<{ type: "text"; text: string }>;
+  structuredContent?: Record<string, unknown>;
+  isError?: boolean;
+};
 type Binding = { option: Option; owner: number; type: "string" | "boolean" };
 type CommandTool = { tool: Tool; path: string[]; bindings: Map<string, Binding> };
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 function discover(program: Command): CommandTool[] {
   const tools: CommandTool[] = [];
@@ -163,80 +180,137 @@ export async function startMcpServer(): Promise<void> {
       return { content: [{ type: "text", text: message }], isError: true };
     }
   }
-  function createServer() {
-    const server = new Server(
-      { name: "emulate", version: typeof PKG_VERSION === "string" ? PKG_VERSION : "0.0.0" },
-      {
-        capabilities: { tools: {} },
-        instructions:
-          "Commands share the emulate CLI handlers. Start owns one run until stop or this MCP connection closes; it does not detach a process.",
-      },
-    );
-    server.setRequestHandler("tools/list", async () => ({
-      tools: [...commands.map((entry) => entry.tool), stopTool],
-    }));
-    server.setRequestHandler("tools/call", (request) => {
-      const response = pending.then(() => call(request.params.name, request.params.arguments ?? {}));
-      pending = response.then(
-        () => undefined,
-        () => undefined,
-      );
-      return response.then((value) => server.projectCallToolResult(value, undefined));
-    });
-    server.onerror = (error) => {
-      console.error(error);
-    };
-    return server;
-  }
   const stdout = process.stdout;
   const stdin = process.stdin;
   const write = stdout.write;
-  const output = new Writable({
-    write(chunk, encoding, callback) {
-      write.call(stdout, chunk, encoding, callback);
-    },
-  });
+  let input: ReturnType<typeof createInterface> | undefined;
   let shutdown!: () => void;
   stdout.write = process.stderr.write.bind(process.stderr) as typeof stdout.write;
   try {
     await new Promise<void>((resolve, reject) => {
-      const transport = new StdioServerTransport(stdin, output);
-      const handle = serveStdio(createServer, {
-        transport,
-        onerror: (error) => {
-          console.error(error);
-        },
-      });
       shutdown = () => {
         if (closing) return;
         closing = true;
-        void (async () => {
-          try {
-            await stop();
-          } finally {
-            await handle.close();
+        void stop().then(resolve, reject);
+      };
+      function send(
+        id: string | number | null,
+        response: { result: unknown } | { error: { code: number; message: string } },
+      ) {
+        if (closing) return;
+        try {
+          write.call(stdout, `${JSON.stringify({ jsonrpc: "2.0", id, ...response })}\n`);
+        } catch {
+          shutdown();
+        }
+      }
+      function error(id: string | number | null, code: number, message: string) {
+        send(id, { error: { code, message } });
+      }
+      function handleLine(line: string) {
+        if (closing) return;
+        let message: unknown;
+        try {
+          message = JSON.parse(line);
+        } catch {
+          error(null, -32700, "Parse error");
+          return;
+        }
+        if (!isObject(message)) {
+          error(null, -32600, "Invalid request");
+          return;
+        }
+        const { id, method, params } = message;
+        const validId = typeof id === "string" || (typeof id === "number" && Number.isInteger(id));
+        if (message.jsonrpc !== "2.0" || typeof method !== "string" || ("id" in message && !validId)) {
+          error(validId ? id : null, -32600, "Invalid request");
+          return;
+        }
+        if (!validId) return;
+        if (params !== undefined && (!isObject(params) || (params._meta !== undefined && !isObject(params._meta)))) {
+          error(id, -32602, "params must be an object with object metadata");
+          return;
+        }
+        switch (method) {
+          case "initialize": {
+            if (
+              !params ||
+              typeof params.protocolVersion !== "string" ||
+              !isObject(params.capabilities) ||
+              !isObject(params.clientInfo) ||
+              typeof params.clientInfo.name !== "string" ||
+              typeof params.clientInfo.version !== "string"
+            ) {
+              error(id, -32602, "initialize requires protocolVersion, capabilities, and clientInfo");
+              return;
+            }
+            const versions = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
+            send(id, {
+              result: {
+                protocolVersion: versions.includes(params.protocolVersion) ? params.protocolVersion : versions[0],
+                capabilities: { tools: {} },
+                serverInfo: { name: "emulate", version: typeof PKG_VERSION === "string" ? PKG_VERSION : "0.0.0" },
+                instructions:
+                  "Commands share the emulate CLI handlers. Start owns one run until stop or this MCP connection closes; it does not detach a process.",
+              },
+            });
+            return;
           }
-        })().then(resolve, reject);
-      };
-      const onclose = transport.onclose;
-      transport.onclose = () => {
-        onclose?.();
-        shutdown();
-      };
-      stdin.once("end", shutdown);
+          case "ping":
+            send(id, { result: {} });
+            return;
+          case "tools/list":
+            if (params?.cursor !== undefined && typeof params.cursor !== "string") {
+              error(id, -32602, "cursor must be a string");
+              return;
+            }
+            send(id, { result: { tools: [...commands.map((entry) => entry.tool), stopTool] } });
+            return;
+          case "tools/call": {
+            if (
+              !params ||
+              typeof params.name !== "string" ||
+              (params.arguments !== undefined && !isObject(params.arguments))
+            ) {
+              error(id, -32602, "tools/call requires a name and optional object arguments");
+              return;
+            }
+            const name = params.name;
+            const args = params.arguments ?? {};
+            pending = pending
+              .then(() => call(name, args))
+              .then(
+                (result) => send(id, { result }),
+                () => error(id, -32603, "Internal error"),
+              );
+            return;
+          }
+          default:
+            error(id, -32601, `Method not found: ${method}`);
+        }
+      }
+      input = createInterface({ input: stdin, terminal: false, crlfDelay: Infinity });
+      input.on("line", handleLine);
+      input.once("close", shutdown);
+      input.once("error", shutdown);
+      stdin.once("close", shutdown);
+      stdin.once("error", shutdown);
       process.once("SIGINT", shutdown);
       process.once("SIGTERM", shutdown);
       stdout.once("error", shutdown);
-      output.once("error", shutdown);
+      if (stdin.readableEnded || stdin.destroyed) shutdown();
     });
   } finally {
-    stdin.off("end", shutdown);
+    input?.removeAllListeners("line");
+    input?.off("close", shutdown);
+    input?.off("error", shutdown);
+    input?.close();
+    stdin.off("close", shutdown);
+    stdin.off("error", shutdown);
     process.off("SIGINT", shutdown);
     process.off("SIGTERM", shutdown);
     stdout.off("error", shutdown);
-    output.off("error", shutdown);
     stdout.write = write;
     stdin.pause();
-    output.destroy();
   }
 }
