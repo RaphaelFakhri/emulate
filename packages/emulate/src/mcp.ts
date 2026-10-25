@@ -1,10 +1,12 @@
 import { createInterface } from "node:readline";
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { stripVTControlCharacters } from "node:util";
 import type { Command, Option } from "commander";
 import { createProgram } from "./program.js";
 
 declare const PKG_VERSION: string;
 
-type Run = { close(): Promise<void> };
 type Tool = {
   name: string;
   description: string;
@@ -17,10 +19,10 @@ type Tool = {
 };
 type CallToolResult = {
   content: Array<{ type: "text"; text: string }>;
-  structuredContent?: Record<string, unknown>;
-  isError?: boolean;
+  structuredContent: { stdout: string; stderr: string; exitCode: number | null };
+  isError: boolean;
 };
-type Binding = { option: Option; owner: number; type: "string" | "boolean" };
+type Binding = { option: Option; type: "string" | "boolean" };
 type CommandTool = { tool: Tool; path: string[]; bindings: Map<string, Binding> };
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -48,9 +50,9 @@ function discover(program: Command): CommandTool[] {
       { type: "string" | "boolean"; description: string; default?: string | boolean; enum?: string[] }
     > = Object.create(null);
     const required: string[] = [];
-    for (const [owner, parent] of chain.entries()) {
+    for (const parent of chain) {
       for (const option of parent.options) {
-        if (["--json", "--help", "--version"].includes(option.long ?? "")) continue;
+        if (["--help", "--version"].includes(option.long ?? "")) continue;
         const name = option.attributeName();
         if (!option.long || option.optional || option.variadic || bindings.has(name))
           throw new Error(`Unsupported MCP option for ${path.join(" ")}: ${option.flags}`);
@@ -58,7 +60,7 @@ function discover(program: Command): CommandTool[] {
         const defaultValue = parent.getOptionValue(name);
         if (defaultValue !== undefined && typeof defaultValue !== type)
           throw new Error(`Unsupported MCP default for ${path.join(" ")}: ${option.flags}`);
-        bindings.set(name, { option, owner, type });
+        bindings.set(name, { option, type });
         properties[name] = { type, description: option.description };
         if (defaultValue !== undefined) properties[name].default = defaultValue;
         if (option.argChoices) properties[name].enum = option.argChoices;
@@ -87,11 +89,33 @@ function discover(program: Command): CommandTool[] {
   return tools;
 }
 
-function result(
-  data: Record<string, unknown>,
-  text: string,
-): CallToolResult & { structuredContent: Record<string, unknown> } {
-  return { content: [{ type: "text", text }], structuredContent: data };
+function result(stdout: string, stderr = "", exitCode: number | null = 0): CallToolResult {
+  const redact = (text: string) =>
+    stripVTControlCharacters(text).replace(/https?:\/\/[^\s]+/g, (value) => {
+      try {
+        const url = new URL(value);
+        url.username = "";
+        url.password = "";
+        for (const key of [...url.searchParams.keys()])
+          if (
+            /token|secret|password|credential|signature|session|cookie|(?:api|private)[_-]?key|^(?:auth|authorization|key|code|sig)$/i.test(
+              key,
+            )
+          )
+            url.searchParams.set(key, "[redacted]");
+        return url.href;
+      } catch {
+        return value;
+      }
+    });
+  stdout = redact(stdout);
+  stderr = redact(stderr);
+  const text = [stdout.trim(), stderr.trim()].filter(Boolean).join("\n\n") || "(no output)";
+  return {
+    content: [{ type: "text", text }],
+    structuredContent: { stdout, stderr, exitCode },
+    isError: exitCode !== null && exitCode !== 0,
+  };
 }
 
 export async function startMcpServer(): Promise<void> {
@@ -101,24 +125,127 @@ export async function startMcpServer(): Promise<void> {
     description: "Stop this connection's emulator run, including a pending start. A later start can create a new run.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   };
+  type Run = { close(): Promise<CallToolResult>; response: Promise<CallToolResult> };
+  const children = new Set<Run>();
   let active: Run | undefined;
-  let starting: AbortController | undefined;
   let calls = 0;
   let lastStop = 0;
   let pending = Promise.resolve();
   let closing = false;
+
+  function launch(argv: string[], starting: boolean): Run {
+    const env: NodeJS.ProcessEnv = { ...process.env, CI: "1", NO_COLOR: "1" };
+    delete env.FORCE_COLOR;
+    const child = spawn(process.execPath, [fileURLToPath(new URL("./index.js", import.meta.url)), ...argv], {
+      env,
+      stdio: ["ignore", "pipe", "pipe", "ipc"],
+      detached: process.platform !== "win32",
+      windowsHide: true,
+    });
+    let stdout = "";
+    let stderr = "";
+    let failure: string | undefined;
+    let ready = false;
+    let stopping: Promise<CallToolResult> | undefined;
+    let resolveResponse!: (value: CallToolResult) => void;
+    let resolveExit!: (value: CallToolResult) => void;
+    const response = new Promise<CallToolResult>((resolve) => {
+      resolveResponse = resolve;
+    });
+    const exited = new Promise<CallToolResult>((resolve) => {
+      resolveExit = resolve;
+    });
+    const timer = setTimeout(() => {
+      failure = "CLI command timed out";
+      void run.close();
+    }, 30000);
+    const finish = (code: number | null, signal?: NodeJS.Signals | null) => {
+      clearTimeout(timer);
+      const exitCode = stopping && signal === "SIGTERM" ? 0 : (code ?? 1);
+      const value = result(stdout, [stderr, failure].filter(Boolean).join("\n"), failure ? 1 : exitCode);
+      resolveExit(value);
+      resolveResponse(
+        starting && !ready && !value.isError ? result(stdout, "Emulator startup stopped before readiness", 1) : value,
+      );
+      children.delete(run);
+      if (active === run) active = undefined;
+    };
+    child.stdout!.on("data", (data: Buffer) => {
+      stdout = (stdout + data.toString()).slice(-131072);
+      if (starting) process.stderr.write(data);
+    });
+    child.stderr!.on("data", (data: Buffer) => {
+      stderr = (stderr + data.toString()).slice(-131072);
+      if (starting) process.stderr.write(data);
+    });
+    child.once("error", (error) => {
+      failure = error.message;
+      finish(1);
+    });
+    child.once("close", finish);
+    child.on("message", (message: unknown) => {
+      if (!starting || stopping || ready || !isObject(message)) return;
+      if (message.type === "emulate:ready" && typeof message.text === "string") {
+        ready = true;
+        clearTimeout(timer);
+        resolveResponse(result(message.text, "", null));
+      } else if (message.type === "emulate:error") {
+        failure = String(message.error ?? "Emulator startup failed");
+        void run.close();
+      }
+    });
+    const run: Run = {
+      response,
+      close() {
+        return (stopping ??= (async () => {
+          clearTimeout(timer);
+          if (child.exitCode === null && child.signalCode === null) {
+            if (starting && child.connected)
+              child.send({ type: "emulate:stop" }, (error) => {
+                if (error) child.kill("SIGTERM");
+              });
+            else child.kill("SIGTERM");
+          }
+          const kill = setTimeout(() => {
+            if (!child.pid) return;
+            failure ??= "CLI did not stop within 8 seconds";
+            if (process.platform === "win32") {
+              const killer = spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
+                stdio: "ignore",
+                windowsHide: true,
+              });
+              killer.on("error", () => child.kill("SIGKILL"));
+            } else {
+              try {
+                process.kill(-child.pid, "SIGKILL");
+              } catch {
+                child.kill("SIGKILL");
+              }
+            }
+          }, 8000);
+          try {
+            return await exited;
+          } finally {
+            clearTimeout(kill);
+          }
+        })());
+      },
+    };
+    children.add(run);
+    return run;
+  }
+
   async function stop() {
     const run = active;
-    starting?.abort(new Error("Emulator startup stopped"));
     try {
-      await run?.close();
+      const stopped = await run?.close();
+      return stopped?.isError ? stopped : result("Stopped the owned emulator run.");
     } finally {
       if (active === run) active = undefined;
     }
   }
+
   async function call(name: string, args: Record<string, unknown>, order: number): Promise<CallToolResult> {
-    let started: Run | undefined;
-    let controller: AbortController | undefined;
     try {
       if (closing) throw new Error("MCP server is closing");
       const entry = commands.find((entry) => entry.tool.name === name);
@@ -130,78 +257,24 @@ export async function startMcpServer(): Promise<void> {
       }
       if (name === "stop") {
         lastStop = order;
-        await stop();
-        return result({ stopped: true }, "Stopped the owned emulator run.");
+        return await stop();
       }
       if (name === "start" && order < lastStop) throw new Error("Emulator startup stopped");
       if (name === "start" && active)
         throw new Error("An emulator run is already active. Call stop before starting again.");
-      if (name === "start") starting = controller = new AbortController();
-      let captured: ReturnType<typeof result> | undefined;
-      const program = createProgram({
-        nonInteractive: true,
-        signal: controller?.signal,
-        output: (data, text) => {
-          captured = result(data, text);
-        },
-        started: (run) => {
-          started = run;
-          controller?.signal.throwIfAborted();
-          if (closing) throw new Error("MCP server is closing");
-          if (active) throw new Error("An emulator run is already active. Call stop before starting again.");
-          active = run;
-        },
-      });
-      const chain = [program];
-      for (const part of entry!.path) chain.push(chain.at(-1)!.commands.find((command) => command.name() === part)!);
-      const configure = (command: Command) => {
-        command.exitOverride().configureOutput({
-          writeOut: (text) => {
-            process.stderr.write(text);
-          },
-          writeErr: (text) => {
-            process.stderr.write(text);
-          },
-        });
-        for (const child of command.commands) configure(child);
-      };
-      configure(program);
       const argv = [...entry!.path];
       for (const [key, value] of Object.entries(args)) {
-        const { option, owner, type } = entry!.bindings.get(key)!;
+        const { option, type } = entry!.bindings.get(key)!;
         if (type === "string") argv.push(`${option.long}=${value}`);
         else if (value === !option.negate) argv.push(option.long!);
-        else chain[owner].setOptionValueWithSource(key, value, "cli");
+        else if (option.defaultValue !== undefined && value !== option.defaultValue)
+          throw new Error(`${key} cannot override its CLI default without an opposing flag`);
       }
-      const command = program.parseAsync(argv, { from: "user" });
-      if (controller) {
-        const { signal } = controller;
-        await Promise.race([
-          command,
-          new Promise<never>((_resolve, reject) => {
-            signal.addEventListener("abort", () => reject(signal.reason), { once: true });
-          }),
-        ]);
-      } else await command;
-      if (name === "start" && !started) throw new Error("Command start returned no owned run");
-      if (!captured) throw new Error(`Command ${name} returned no structured result`);
-      if (name === "start" && captured.structuredContent?.ready === false)
-        throw new Error(String(captured.structuredContent.error ?? "Emulator startup failed"));
-      return captured;
+      const run = launch(argv, name === "start");
+      if (name === "start") active = run;
+      return await run.response;
     } catch (error) {
-      let message = error instanceof Error ? error.message : String(error);
-      if (started) {
-        try {
-          await started.close();
-        } catch (cleanup) {
-          message += `; cleanup failed: ${cleanup instanceof Error ? cleanup.message : String(cleanup)}`;
-        } finally {
-          if (active === started) active = undefined;
-        }
-      }
-      return { content: [{ type: "text", text: message }], isError: true };
-    } finally {
-      if (starting === controller) starting = undefined;
+      return result("", error instanceof Error ? error.message : String(error), 1);
     }
   }
   const stdout = process.stdout;
@@ -209,13 +282,12 @@ export async function startMcpServer(): Promise<void> {
   const write = stdout.write;
   let input: ReturnType<typeof createInterface> | undefined;
   let shutdown!: () => void;
-  stdout.write = process.stderr.write.bind(process.stderr) as typeof stdout.write;
   try {
     await new Promise<void>((resolve, reject) => {
       shutdown = () => {
         if (closing) return;
         closing = true;
-        void stop().then(resolve, reject);
+        void Promise.all([...children].map((run) => run.close())).then(() => resolve(), reject);
       };
       function send(
         id: string | number | null,
@@ -275,7 +347,7 @@ export async function startMcpServer(): Promise<void> {
                 capabilities: { tools: {} },
                 serverInfo: { name: "emulate", version: typeof PKG_VERSION === "string" ? PKG_VERSION : "0.0.0" },
                 instructions:
-                  "Commands share the emulate CLI handlers. Start owns one run until stop or this MCP connection closes; it does not detach a process.",
+                  "Tools run the emulate CLI. Start owns one emulator process until stop or this MCP connection closes.",
               },
             });
             return;
@@ -336,7 +408,6 @@ export async function startMcpServer(): Promise<void> {
     process.off("SIGINT", shutdown);
     process.off("SIGTERM", shutdown);
     stdout.off("error", shutdown);
-    stdout.write = write;
     stdin.pause();
   }
 }

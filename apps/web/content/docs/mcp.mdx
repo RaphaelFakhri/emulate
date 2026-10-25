@@ -2,7 +2,7 @@
 title: "MCP Server"
 ---
 
-`npx emulate mcp` lets your coding agent list services, create a config, and start or stop local emulators. It runs over stdio and uses the same command handlers as the CLI.
+`npx emulate mcp` lets your coding agent list services, create a config, and start or stop local emulators. It runs over stdio and executes the CLI in child processes.
 
 ## Setup
 
@@ -71,7 +71,7 @@ Ask your agent: **"List the available emulate services, then start Resend."**
 | `start` | Starts emulators and returns their URLs once ready. |
 | `stop` | Stops the run owned by this connection. |
 
-Each connection owns one run. Call `stop` before starting another; it also cancels a pending start. A failed start can be retried. Closing the connection also stops its emulators. In watch mode, later reload errors go to stderr.
+Each connection owns one run. Call `stop` before starting another; it also cancels a pending start. A failed start can be retried. Closing the connection also stops its emulators. In watch mode, later reload errors go to stderr. If the CLI process exits, you can start another run.
 
 Cancellation cannot undo writes already issued by a custom persistence adapter.
 
@@ -79,8 +79,8 @@ Inputs follow the CLI flags in camelCase: `--base-url` becomes `baseUrl`. Value 
 
 ## CLI and MCP
 
-Tools and their inputs come from the shared CLI definitions, so supported commands and options appear automatically. Unsupported command forms fail discovery. The `mcp` command and presentation flags such as `--json` are excluded.
+Tools and their inputs come from the shared CLI definitions, so supported commands and options appear automatically. Unsupported command forms fail discovery. The `mcp` command, help, and version flags are excluded.
 
-For scripts, use `npx emulate list --json`. Diagnostics go to stderr; `start --watch --json` emits one JSON line per readiness or reload update.
+Results contain the CLI's text output, with stdout, stderr, and the exit code available as structured metadata. `start` returns when its child process reports readiness; its exit code is `null` while running. Commands and startup time out after 30 seconds. A ready emulator keeps running until stopped.
 
 This local server controls emulators. The website's MCP endpoint only searches documentation.

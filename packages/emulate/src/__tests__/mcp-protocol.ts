@@ -14,7 +14,6 @@ export type JsonRpcMessage = {
 
 export function createJsonRpcStream(readable: Readable, writable: Writable) {
   const lines = createInterface({ input: readable, crlfDelay: Infinity });
-  const received: JsonRpcMessage[] = [];
   const waiting = new Map<
     JsonRpcId,
     { resolve: (message: JsonRpcMessage) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }
@@ -39,11 +38,10 @@ export function createJsonRpcStream(readable: Readable, writable: Writable) {
         throw new Error("Invalid JSON-RPC response");
       const response = value as JsonRpcMessage;
       const request = waiting.get(response.id!);
-      if (request) {
-        clearTimeout(request.timer);
-        waiting.delete(response.id!);
-        request.resolve(response);
-      } else received.push(response);
+      if (!request) throw new Error(`Unexpected JSON-RPC response ${response.id}`);
+      clearTimeout(request.timer);
+      waiting.delete(response.id!);
+      request.resolve(response);
     } catch (error) {
       fail(error instanceof Error ? error : new Error(String(error)));
     }
@@ -53,8 +51,6 @@ export function createJsonRpcStream(readable: Readable, writable: Writable) {
 
   function response(id: JsonRpcId) {
     if (closed) return Promise.reject(closed);
-    const index = received.findIndex((message) => message.id === id);
-    if (index !== -1) return Promise.resolve(received.splice(index, 1)[0]);
     if (waiting.has(id)) return Promise.reject(new Error(`Already waiting for JSON-RPC response ${id}`));
     return new Promise<JsonRpcMessage>((resolve, reject) => {
       const timer = setTimeout(() => {

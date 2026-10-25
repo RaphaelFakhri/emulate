@@ -62,22 +62,25 @@ export async function prepareProject(
     retained: {},
   };
   let closed = false;
+  let closing: Promise<void> | undefined;
   let accepting = false;
-  async function close() {
-    if (closed) return;
+  function close(): Promise<void> {
+    if (closing) return closing;
     closed = true;
     accepting = false;
-    const results = await Promise.allSettled([
-      ...servers.map(closeHttpServer),
-      ...cleanups.reverse().map((fn) => Promise.resolve().then(fn)),
-    ]);
-    config.loader.close();
-    const errors = results.filter((r): r is PromiseRejectedResult => r.status === "rejected");
-    if (errors.length)
-      throw new AggregateError(
-        errors.map((r) => r.reason),
-        "Failed to shut down project",
-      );
+    return (closing = (async () => {
+      const results = await Promise.allSettled([
+        ...servers.map(closeHttpServer),
+        ...cleanups.reverse().map((fn) => Promise.resolve().then(fn)),
+      ]);
+      config.loader.close();
+      const errors = results.filter((r): r is PromiseRejectedResult => r.status === "rejected");
+      if (errors.length)
+        throw new AggregateError(
+          errors.map((r) => r.reason),
+          "Failed to shut down project",
+        );
+    })());
   }
   try {
     signal?.throwIfAborted();
@@ -159,7 +162,7 @@ export async function prepareProject(
         cleanups.push(() => runtime.close());
         signal?.throwIfAborted();
         activations.push(async () => {
-          if (persistence && pending !== undefined) await persistence.save(pending);
+          if (persistence && pending !== undefined) await abortable(persistence.save(pending), signal);
           if (!closed) active = true;
         });
         prepared.push({ fetch: runtime.fetch, port });
@@ -214,7 +217,9 @@ export async function prepareProject(
       },
     };
   } catch (error) {
-    await close().catch((cleanup) => console.error(cleanup));
+    await close().catch((cleanup) => {
+      throw new AggregateError([error, cleanup], `${error instanceof Error ? error.message : error}; cleanup failed`);
+    });
     throw error;
   }
 }

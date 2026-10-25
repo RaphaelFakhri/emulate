@@ -34,12 +34,10 @@ function failPortless(message: string, throwOnFailure: boolean): never {
   process.exit(1);
 }
 
-export async function ensurePortless(
-  options: { throwOnFailure?: boolean; nonInteractive?: boolean } = {},
-): Promise<void> {
+export async function ensurePortless(options: { throwOnFailure?: boolean } = {}): Promise<void> {
   const throwOnFailure = options.throwOnFailure ?? false;
   if (!hasPortless()) {
-    if (options.nonInteractive || !isInteractive()) {
+    if (!isInteractive()) {
       failPortless("portless is required but not installed. Run: npm i -g portless", throwOnFailure);
     }
 
@@ -69,20 +67,20 @@ export interface PortlessAlias {
   port: number;
 }
 
-export function registerAlias({ name, port }: PortlessAlias, diagnosticsToStderr = false): void {
+export function registerAlias({ name, port }: PortlessAlias): void {
   const result = spawnSync("portless", ["alias", name, String(port), "--force"], {
-    stdio: diagnosticsToStderr ? ["ignore", process.stderr, process.stderr] : "inherit",
+    stdio: "inherit",
   });
   if (result.status !== 0) {
     throw new Error(`Failed to register portless alias: ${name} -> ${port}`);
   }
 }
 
-export function registerAliases(aliases: PortlessAlias[], diagnosticsToStderr = false): void {
+export function registerAliases(aliases: PortlessAlias[]): void {
   const registered: PortlessAlias[] = [];
   for (const alias of aliases) {
     try {
-      registerAlias(alias, diagnosticsToStderr);
+      registerAlias(alias);
     } catch (error) {
       if (registered.length > 0) {
         removeAliases(registered);

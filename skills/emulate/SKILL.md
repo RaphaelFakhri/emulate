@@ -59,9 +59,6 @@ npx emulate init --service vercel
 
 # List available services
 npx emulate list
-
-# Get structured output for scripts
-npx emulate list --json
 ```
 
 ### Options

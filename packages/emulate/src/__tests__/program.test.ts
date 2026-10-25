@@ -5,7 +5,6 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createProgram } from "../program.js";
 import { initCommand } from "../commands/init.js";
-import { listCommand } from "../commands/list.js";
 
 let directory: string;
 let previousDirectory: string;
@@ -33,20 +32,14 @@ async function availablePort() {
   return port;
 }
 
-describe("shared command execution", () => {
-  it("returns handler results without printing and refuses to overwrite an existing init config", async () => {
-    const stdout = vi.spyOn(console, "log").mockImplementation(() => {});
-    const stderr = vi.spyOn(console, "error").mockImplementation(() => {});
-    const result = initCommand({ service: "resend" });
-    expect(result.data.path).toBe(join(directory, "emulate.config.yaml"));
-    const before = await readFile(result.data.path, "utf8");
-    expect(before).toContain("resend:");
-    expect(before).not.toContain("github:");
+describe("CLI command execution", () => {
+  it("refuses to overwrite an existing init config", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    initCommand({ service: "resend" });
+    const path = join(directory, "emulate.config.yaml");
+    const before = await readFile(path, "utf8");
     expect(() => initCommand({ service: "all" })).toThrow("Config file already exists");
-    expect(await readFile(result.data.path, "utf8")).toBe(before);
-    expect((await listCommand()).text).toContain("Available services:");
-    expect(stdout).not.toHaveBeenCalled();
-    expect(stderr).not.toHaveBeenCalled();
+    expect(await readFile(path, "utf8")).toBe(before);
   });
 
   it.each(["missing", "toString"])("rejects unknown init service %s without creating a config", async (service) => {
@@ -56,43 +49,14 @@ describe("shared command execution", () => {
     await expect(readFile(join(directory, "emulate.config.yaml"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  it("keeps the CLI init text and prints a single JSON result when requested", async () => {
-    const stdout = vi.spyOn(console, "log").mockImplementation(() => {});
-    await createProgram().parseAsync(["init", "--service", "resend"], { from: "user" });
-    expect(stdout.mock.calls).toEqual([["Created emulate.config.yaml\n\nRun 'npx emulate' to start the emulator."]]);
-    stdout.mockClear();
-    const write = vi.spyOn(process.stdout, "write").mockReturnValue(true);
-    await createProgram().parseAsync(["list-services", "--json"], { from: "user" });
-    expect(write).toHaveBeenCalledTimes(1);
-    const result = JSON.parse(String(write.mock.calls[0][0]));
-    expect(result.services).toEqual(expect.arrayContaining([expect.objectContaining({ name: "resend" })]));
-    expect(result).not.toHaveProperty("tokens");
-  });
-
-  it("returns structured scaffold paths without printing", async () => {
-    const output = vi.fn();
-    const stdout = vi.spyOn(console, "log").mockImplementation(() => {});
-    await createProgram({ output }).parseAsync(["init", "--custom", "inventory"], { from: "user" });
-    const [result, text] = output.mock.calls[0];
-    expect(result).toMatchObject({
-      name: "inventory",
-      source: join(directory, "emulators/inventory.ts"),
-      test: join(directory, "emulators/inventory.test.ts"),
-      config: join(directory, "emulate.config.ts"),
-      configUpdated: true,
-    });
-    expect(text).toContain("Start: npx emulate start --watch");
-    expect(stdout).not.toHaveBeenCalled();
-  });
-
   it("refuses a missing Portless installation without prompting even on a TTY", async () => {
     const originalTTY = process.stdin.isTTY;
     process.stdin.isTTY = true;
-    vi.stubEnv("CI", "");
+    vi.stubEnv("CI", "1");
     vi.stubEnv("PATH", directory);
     try {
       await expect(
-        createProgram({ nonInteractive: true }).parseAsync(
+        createProgram().parseAsync(
           ["start", "--service", "resend", "--portless", "--port", String(await availablePort())],
           { from: "user" },
         ),

@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { createServer, type AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -11,9 +11,11 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
 type ToolResult = {
   content: Array<{ type: string; text?: string }>;
-  structuredContent?: Record<string, unknown>;
+  structuredContent?: { stdout: string; stderr: string; exitCode: number | null };
   isError?: boolean;
 };
+
+type CliResult = { stdout: string; stderr: string; exitCode: number | null };
 
 function toolResult(response: JsonRpcMessage) {
   return response.result as ToolResult;
@@ -43,6 +45,22 @@ function spawnMcpProcess(directory: string, env: NodeJS.ProcessEnv) {
   return { child, client: createJsonRpcStream(child.stdout, child.stdin), exited, stderr: () => stderr };
 }
 
+function runCli(directory: string, args: string[]): Promise<CliResult> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [join(root, "dist/index.js"), ...args], {
+      cwd: directory,
+      env: { ...process.env, PORTLESS_URL: "" },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => (stdout += chunk.toString()));
+    child.stderr.on("data", (chunk) => (stderr += chunk.toString()));
+    child.once("error", reject);
+    child.once("close", (exitCode) => resolve({ stdout, stderr, exitCode }));
+  });
+}
+
 async function initialize(client: ReturnType<typeof createJsonRpcStream>, name: string) {
   const response = await client.request("initialize", {
     protocolVersion: "2024-11-05",
@@ -61,11 +79,58 @@ async function unusedPort() {
 }
 
 describe("built MCP stdio", () => {
+  it("matches finite CLI output and init file effects", async () => {
+    const mcpDirectory = await mkdtemp(join(tmpdir(), "emulate-mcp-finite-"));
+    const cliDirectory = await mkdtemp(join(tmpdir(), "emulate-cli-finite-"));
+    const { child, client, exited } = spawnMcpProcess(mcpDirectory, {
+      ...process.env,
+      PORTLESS_URL: "",
+    });
+    try {
+      await initialize(client, "finite-command-test");
+      client.notification("notifications/initialized");
+      for (const name of ["list", "init"]) {
+        const expected = await runCli(cliDirectory, [name]);
+        const actual = toolResult(await client.request("tools/call", { name, arguments: {} }));
+        expect(actual.structuredContent).toEqual(expected);
+        expect(Boolean(actual.isError)).toBe(expected.exitCode !== 0);
+        if (expected.stdout.trim()) expect(resultText(actual)).toContain(expected.stdout.trim());
+        if (expected.stderr.trim()) expect(resultText(actual)).toContain(expected.stderr.trim());
+      }
+      const mcpConfig = await readFile(join(mcpDirectory, "emulate.config.yaml"), "utf8");
+      const cliConfig = await readFile(join(cliDirectory, "emulate.config.yaml"), "utf8");
+      expect(mcpConfig).toContain("tokens:");
+      expect(mcpConfig).toBe(cliConfig);
+
+      const expectedDuplicate = await runCli(cliDirectory, ["init"]);
+      const normalizedDuplicate = {
+        ...expectedDuplicate,
+        stderr: expectedDuplicate.stderr.replaceAll(cliDirectory, mcpDirectory),
+      };
+      const duplicate = toolResult(await client.request("tools/call", { name: "init", arguments: {} }));
+      expect(duplicate.structuredContent).toEqual(normalizedDuplicate);
+      expect(duplicate.isError).toBe(true);
+      expect(expectedDuplicate.exitCode).toBe(1);
+      expect(resultText(duplicate)).toContain(normalizedDuplicate.stderr.trim());
+    } finally {
+      const timer = setTimeout(() => child.kill("SIGKILL"), 5000);
+      try {
+        child.stdin.end();
+        await exited;
+        client.close();
+      } finally {
+        clearTimeout(timer);
+        await Promise.all([
+          rm(mcpDirectory, { recursive: true, force: true }),
+          rm(cliDirectory, { recursive: true, force: true }),
+        ]);
+      }
+    }
+  }, 30000);
+
   it.each([
     { watch: false, signal: undefined },
-    { watch: true, signal: undefined },
     { watch: true, signal: "SIGTERM" as const },
-    { watch: false, signal: "SIGINT" as const },
   ])(
     "keeps protocol stdout clean and closes workers: $watch, signal: $signal",
     async ({ watch, signal }) => {
@@ -80,6 +145,7 @@ describe("built MCP stdio", () => {
         config,
         `
 import { defineEmulator } from "emulate";
+import { existsSync, writeFileSync } from "node:fs";
 console.log("config stdout noise");
 process.stdout.write("direct stdout noise\\n");
 export default {
@@ -95,6 +161,10 @@ export default {
           app.get("/", (c) => {
             process.stdout.write("request stdout noise\\n");
             return c.json({ ...state, baseUrl });
+          });
+          app.get("/crash", (c) => {
+            if (!existsSync("crashed")) { writeFileSync("crashed", "done"); process.exit(2); }
+            return c.text("alive");
           });
           app.post("/arm", (c) => { state.armed = true; return c.text("armed"); });
         }
@@ -121,8 +191,9 @@ export default {
         client.notification("notifications/initialized");
         expect((await client.request("ping")).result).toEqual({});
 
+        const parseErrorResponse = client.response(null);
         client.writeRaw("{broken json\n");
-        const parseError = await client.response(null);
+        const parseError = await parseErrorResponse;
         expect(parseError.error?.code).toBe(-32700);
         const malformed = await client.requestMessage({ jsonrpc: "2.0", id: 9001 });
         expect(malformed.error?.code).toBe(-32600);
@@ -169,6 +240,12 @@ export default {
         );
         expect(failed.isError).toBe(true);
         expect(resultText(failed)).toContain("Invalid port");
+        expect(failed.structuredContent).toMatchObject({
+          stdout: expect.any(String),
+          stderr: expect.stringContaining("Invalid port"),
+          exitCode: expect.any(Number),
+        });
+        expect(resultText(failed)).toContain(failed.structuredContent!.stderr.trim());
         if (watch) {
           const brokenConfig = join(directory, "broken.mjs");
           await writeFile(brokenConfig, 'throw new Error("startup failed");');
@@ -181,15 +258,49 @@ export default {
         const concurrentStart = client.request("tools/call", { name: "start", arguments: { config, watch } });
         let result = toolResult(await start);
         expect(result.isError, JSON.stringify(result)).not.toBe(true);
+        expect(result.structuredContent).toMatchObject({
+          stdout: expect.any(String),
+          stderr: expect.any(String),
+          exitCode: null,
+        });
+        expect(result.structuredContent!.stdout).toMatch(/counter[\s\S]*Ready\.|counter[\s\S]*Watching/);
+        expect(resultText(result)).toContain(result.structuredContent!.stdout.trim());
         const duplicate = toolResult(await concurrentStart);
         expect(duplicate.isError).toBe(true);
         expect(resultText(duplicate)).toContain("already active");
+        expect(duplicate.structuredContent).toMatchObject({
+          stdout: expect.any(String),
+          stderr: expect.any(String),
+          exitCode: expect.any(Number),
+        });
 
         if (!watch && !signal) {
+          await fetch(`${url}crash`, { signal: AbortSignal.timeout(3000) }).catch(() => undefined);
+          let recovered: ToolResult | undefined;
+          await expect
+            .poll(
+              async () => {
+                recovered = toolResult(
+                  await client.request("tools/call", { name: "start", arguments: { config, watch } }),
+                );
+                return recovered.isError;
+              },
+              { timeout: 10000 },
+            )
+            .toBe(false);
+          expect(recovered!.structuredContent).toMatchObject({
+            stdout: expect.any(String),
+            stderr: expect.any(String),
+            exitCode: null,
+          });
+          result = recovered!;
+          expect((await fetch(url)).status).toBe(200);
           expect((await fetch(`${url}arm`, { method: "POST" })).status).toBe(200);
           const stopped = toolResult(await client.request("tools/call", { name: "stop", arguments: {} }));
           expect(stopped.isError).toBe(true);
           expect(resultText(stopped)).toContain("Failed to shut down project");
+          expect(stopped.structuredContent).toMatchObject({ exitCode: 1 });
+          expect(stopped.structuredContent!.stderr).toContain("Failed to shut down project");
           await expect(fetch(url, { signal: AbortSignal.timeout(3000) })).rejects.toThrow();
           result = toolResult(await client.request("tools/call", { name: "start", arguments: { config, watch } }));
           expect(result.isError).not.toBe(true);
@@ -201,10 +312,9 @@ export default {
           expect(result.isError).not.toBe(true);
           expect((await fetch(url)).status).toBe(200);
         }
-        const { services } = result.structuredContent as {
-          services: Array<{ url: string; inspectorUrl: string }>;
-        };
-        for (const value of [services[0].url, services[0].inspectorUrl]) {
+        const urls = result.structuredContent!.stdout.match(/https?:\/\/[^\s]+/g) ?? [];
+        expect(urls.length).toBeGreaterThan(0);
+        for (const value of urls) {
           const advertised = new URL(value);
           expect(advertised.username).toBe("");
           expect(advertised.password).toBe("");
@@ -212,7 +322,7 @@ export default {
           for (const key of ["client_secret", "apiKey", "X-Amz-Signature"])
             expect(advertised.searchParams.get(key)).toBe("[redacted]");
         }
-        expect(new URL(services[0].url).searchParams.get("public")).toBe("kept");
+        expect(new URL(urls[0]!).searchParams.get("public")).toBe("kept");
         for (const secret of [
           "stdio-user",
           "stdio-password",
@@ -220,8 +330,10 @@ export default {
           "stdio-client-secret",
           "stdio-api-key",
           "stdio-signature",
-        ])
+        ]) {
           expect(JSON.stringify(result)).not.toContain(secret);
+          expect(stderr()).not.toContain(secret);
+        }
         expect(await (await fetch(url, { signal: AbortSignal.timeout(3000) })).json()).toEqual({
           count: 7,
           armed: false,

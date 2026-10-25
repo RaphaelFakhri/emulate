@@ -5,18 +5,26 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, it } from "vitest";
-import { createJsonRpcStream } from "./mcp-protocol.js";
+import { createJsonRpcStream, type JsonRpcMessage } from "./mcp-protocol.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
+type ToolResult = {
+  content: Array<{ type: string; text?: string }>;
+  structuredContent?: { stdout: string; stderr: string; exitCode: number | null };
+  isError?: boolean;
+};
+
+function toolResult(response: JsonRpcMessage) {
+  return response.result as ToolResult;
+}
+
 it.each([
-  { watch: false, signal: undefined },
-  { watch: false, signal: "SIGTERM" as const },
-  { watch: true, signal: undefined },
-  { watch: true, signal: "SIGTERM" as const },
   { watch: false, signal: "stop" as const },
-  { watch: true, signal: "stop" as const },
   { watch: false, signal: "stop-preparing" as const },
+  { watch: false, signal: "SIGTERM" as const },
+  { watch: true, signal: "stop" as const },
+  { watch: true, signal: undefined },
 ])(
   "closes bound listeners during a stalled startup: watch=$watch, signal=$signal",
   async ({ watch, signal }) => {
@@ -89,15 +97,25 @@ export default { services: { ${preparedService} stalled: {
           )
           .toBe(503);
       }
+      const returnedEarly = await Promise.race([
+        starting.then(() => true),
+        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 50)),
+      ]);
+      expect(returnedEarly).toBe(false);
       if (signal === "stop" || signal === "stop-preparing") {
         await expect(
           client.request("tools/call", { name: "stop", arguments: { unknown: true } }),
         ).resolves.toMatchObject({ result: { isError: true } });
         if (!preparing) expect((await fetch(`http://127.0.0.1:${port}/`)).status).toBe(503);
-        await expect(client.request("tools/call", { name: "stop" })).resolves.toMatchObject({
-          result: { structuredContent: { stopped: true } },
+        const stopped = toolResult(await client.request("tools/call", { name: "stop" }));
+        expect(stopped.isError).not.toBe(true);
+        const cancelled = toolResult((await starting) as JsonRpcMessage);
+        expect(cancelled.isError).toBe(true);
+        expect(cancelled.structuredContent).toMatchObject({
+          stdout: expect.any(String),
+          stderr: expect.any(String),
         });
-        await expect(starting).resolves.toMatchObject({ result: { isError: true } });
+        expect(cancelled.structuredContent).toHaveProperty("exitCode");
         if (preparing) expect(await readFile(join(directory, "disposed"), "utf8")).toBe("done");
         await expect(fetch(`http://127.0.0.1:${port}/`)).rejects.toThrow();
         await writeFile(
@@ -107,9 +125,14 @@ export default { services: { ${preparedService} stalled: {
             .replace("await new Promise(() => {});", "")
             .replace("save: () => new Promise(() => {})", "save: async () => {}"),
         );
-        await expect(
-          client.request("tools/call", { name: "start", arguments: { config, watch } }),
-        ).resolves.toMatchObject({ result: { structuredContent: { ready: true } } });
+        const restarted = toolResult(
+          await client.request("tools/call", { name: "start", arguments: { config, watch } }),
+        );
+        expect(restarted.isError).not.toBe(true);
+        expect(restarted.structuredContent).toMatchObject({
+          stdout: expect.stringContaining(watch ? "Watching imports" : "Ready."),
+          exitCode: null,
+        });
         expect(await (await fetch(`http://127.0.0.1:${port}/`)).text()).toBe("ready");
         child.stdin.end();
       } else if (signal) child.kill(signal);

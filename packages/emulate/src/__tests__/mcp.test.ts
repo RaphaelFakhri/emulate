@@ -1,21 +1,16 @@
 import { PassThrough } from "node:stream";
 import { Option, type Command } from "commander";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createProgram, type CommandContext } from "../program.js";
+import { createProgram } from "../program.js";
 import { startMcpServer } from "../mcp.js";
 import { createJsonRpcStream } from "./mcp-protocol.js";
-
-type McpResult = {
-  content: Array<{ type: string; text?: string }>;
-  structuredContent?: Record<string, unknown>;
-  isError?: boolean;
-};
 
 type Tool = {
   name: string;
   description?: string;
   inputSchema: { properties: Record<string, unknown>; [key: string]: unknown };
 };
+
 vi.mock("../program.js", async (importOriginal) => {
   const original = await importOriginal<typeof import("../program.js")>();
   return { ...original, createProgram: vi.fn(original.createProgram) };
@@ -76,45 +71,38 @@ async function connect() {
   const client = createJsonRpcStream(stdout, stdin);
   const done = startMcpServer();
   cleanups.push(async () => {
-    stdin.end();
-    await done;
-    client.close();
-    stdout.destroy();
+    try {
+      stdin.end();
+      await done;
+    } finally {
+      client.close();
+      stdout.destroy();
+    }
   });
-  await client.request("initialize", {
+  const initialized = await client.request("initialize", {
     protocolVersion: "2024-11-05",
     capabilities: {},
     clientInfo: { name: "emulate-test", version: "1.0.0" },
   });
+  expect(initialized.result).toMatchObject({
+    protocolVersion: "2024-11-05",
+    capabilities: { tools: {} },
+    serverInfo: { name: "emulate" },
+  });
   client.notification("notifications/initialized");
-  return { client };
+  return client;
 }
 
-async function call(client: ReturnType<typeof createJsonRpcStream>, name: string, args: Record<string, unknown> = {}) {
-  return (await client.request("tools/call", { name, arguments: args })).result as McpResult;
-}
-
-function message(result: McpResult) {
-  return result.content
-    .filter((part) => part.type === "text")
-    .map((part) => part.text)
-    .join("\n");
-}
-
-describe("MCP command adapter", () => {
-  it("lists canonical commands and derives option types, names, and CLI defaults", async () => {
-    const { client } = await connect();
+describe("MCP command discovery", () => {
+  it("maps actual Commander commands, option types, and CLI defaults", async () => {
+    const client = await connect();
     const { tools } = (await client.request("tools/list", {})).result as { tools: Tool[] };
+    const program = original.createProgram();
     expect(tools.map((tool) => tool.name).sort()).toEqual(
-      [...original.createProgram().commands.map((command) => command.name()), "stop"].sort(),
+      [...program.commands.map((command) => command.name()), "stop"].sort(),
     );
     const start = tools.find((tool) => tool.name === "start")!;
-    expect(start.description).toBe(
-      original
-        .createProgram()
-        .commands.find((command) => command.name() === "start")!
-        .description(),
-    );
+    expect(start.description).toBe(program.commands.find((command) => command.name() === "start")!.description());
     expect(start.inputSchema).toMatchObject({
       type: "object",
       additionalProperties: false,
@@ -134,80 +122,9 @@ describe("MCP command adapter", () => {
     }
   });
 
-  it("clears a failed start when closing its run also fails", async () => {
-    const failedClose = vi.fn(async () => {
-      throw new Error("cleanup failed");
-    });
-    const successfulClose = vi.fn(async () => undefined);
-    let starts = 0;
-    vi.mocked(createProgram).mockImplementation((context) => {
-      const program = original.createProgram(context);
-      program.commands
-        .find((command) => command.name() === "start")!
-        .action(async () => {
-          starts++;
-          const ready = starts > 1;
-          context!.started!({ close: ready ? successfulClose : failedClose });
-          context!.output!({ ready, watching: false, services: [], ...(ready ? {} : { error: "startup failed" }) }, "");
-        });
-      return program;
-    });
-    const { client } = await connect();
-    const failed = await call(client, "start");
-    expect(failed.isError).toBe(true);
-    expect(message(failed)).toContain("cleanup failed");
-    expect((await call(client, "start")).isError).not.toBe(true);
-    expect(starts).toBe(2);
-    expect((await call(client, "stop")).isError).not.toBe(true);
-    expect(failedClose).toHaveBeenCalledOnce();
-    expect(successfulClose).toHaveBeenCalledOnce();
-  });
-
-  it("cancels starts queued before stop without cancelling a later start", async () => {
-    let release!: () => void;
-    const waiting = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const close = vi.fn(async () => {});
-    const start = vi.fn();
-    vi.mocked(createProgram).mockImplementation((context) => {
-      const program = original.createProgram(context);
-      program.commands
-        .find((command) => command.name() === "list")!
-        .action(async () => {
-          await waiting;
-          context!.output!({ services: [] }, "");
-        });
-      program.commands
-        .find((command) => command.name() === "start")!
-        .action(() => {
-          start();
-          context!.started!({ close });
-          context!.output!({ ready: true }, "");
-        });
-      return program;
-    });
-    const { client } = await connect();
-    const listing = call(client, "list");
-    const cancelled = call(client, "start");
-    const stopping = call(client, "stop");
-    const replacement = call(client, "start");
-    try {
-      expect((await stopping).isError).not.toBe(true);
-    } finally {
-      release();
-    }
-    await listing;
-    expect(message(await cancelled)).toContain("startup stopped");
-    expect((await replacement).structuredContent).toEqual({ ready: true });
-    expect(start).toHaveBeenCalledOnce();
-    await call(client, "stop");
-    expect(close).toHaveBeenCalledOnce();
-  });
-
-  it("discovers a new nested command and flags and invokes its actual Commander handler", async () => {
-    vi.mocked(createProgram).mockImplementation((context?: CommandContext) => {
-      const program = original.createProgram(context);
+  it("discovers nested commands, inherited flags, aliases, and option constraints", async () => {
+    vi.mocked(createProgram).mockImplementation(() => {
+      const program = original.createProgram();
       program
         .command("inspect")
         .option("--region <region>", "Region", "local")
@@ -216,18 +133,12 @@ describe("MCP command adapter", () => {
         .requiredOption("--message <message>", "Message")
         .option("--loud", "Uppercase the message", true)
         .option("--no-color", "Disable color")
-        .addOption(new Option("--mode <mode>", "Mode").choices(["plain", "raw"]).default("plain"))
-        .action((options, command) => {
-          const opts = command.optsWithGlobals();
-          const text = options.loud ? options.message.toUpperCase() : options.message;
-          context!.output!({ text, region: opts.region, color: opts.color, mode: opts.mode }, text);
-        });
+        .addOption(new Option("--mode <mode>", "Mode").choices(["plain", "raw"]).default("plain"));
       return program;
     });
-    const { client } = await connect();
+    const client = await connect();
     const { tools } = (await client.request("tools/list", {})).result as { tools: Tool[] };
-    const tool = tools.find((tool) => tool.name === "inspect_echo")!;
-    expect(tool.inputSchema).toMatchObject({
+    expect(tools.find((tool) => tool.name === "inspect_echo")!.inputSchema).toMatchObject({
       required: ["message"],
       properties: {
         region: { type: "string", default: "local" },
@@ -237,32 +148,11 @@ describe("MCP command adapter", () => {
         mode: { type: "string", default: "plain", enum: ["plain", "raw"] },
       },
     });
-    expect((await call(client, "inspect_echo")).isError).toBe(true);
-    expect((await call(client, "inspect_echo", { message: "ok", mode: "invalid" })).isError).toBe(true);
-    const result = await call(client, "inspect_echo", {
-      message: "--help; $(echo bad)",
-      loud: false,
-      color: false,
-      region: "remote",
-    });
-    expect(result.isError).not.toBe(true);
-    expect(result.structuredContent).toEqual({
-      text: "--help; $(echo bad)",
-      color: false,
-      region: "remote",
-      mode: "plain",
-    });
-    expect((await call(client, "inspect_echo", { message: "hello" })).structuredContent).toEqual({
-      text: "HELLO",
-      color: true,
-      region: "local",
-      mode: "plain",
-    });
   });
 
   it.each(unsupportedCommands)("rejects %s during automatic tool discovery", async (_name, add, error) => {
-    vi.mocked(createProgram).mockImplementation((context) => {
-      const program = original.createProgram(context);
+    vi.mocked(createProgram).mockImplementation(() => {
+      const program = original.createProgram();
       add(program);
       return program;
     });

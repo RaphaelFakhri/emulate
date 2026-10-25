@@ -131,7 +131,7 @@ The port can also be set via `EMULATE_PORT` or `PORT` environment variables.
 
 For access from a container or another machine, use `npx emulate start --host 0.0.0.0`. Set `--base-url` to a URL reachable by those clients when using OAuth redirects or other advertised URLs.
 
-Use `npx emulate list --json` for structured CLI results. To control a local emulator from an MCP client, run `npx emulate mcp`. See the [MCP server guide](https://emulate.dev/docs/mcp) for client setup and tool behavior.
+To control a local emulator from an MCP client, run `npx emulate mcp`. See the [MCP server guide](https://emulate.dev/docs/mcp) for client setup and tool behavior.
 
 ## HTTPS with portless
 

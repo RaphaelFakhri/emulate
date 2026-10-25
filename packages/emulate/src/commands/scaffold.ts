@@ -244,15 +244,5 @@ export function scaffoldCommand(name: string, configOption?: string, cwd = proce
   lines.push(
     `\nStart: npx emulate start --watch${configOption ? ` --config ${JSON.stringify(configOption)}` : ""}\nTest: node --test ${relative(cwd, test)}\nUse the ${name} URL and Inspector link printed by start to send requests and inspect state.`,
   );
-  return {
-    data: {
-      name,
-      source,
-      test,
-      config,
-      configUpdated: output !== undefined,
-      ...(output === undefined ? { import: importLine, entry: entryLine } : {}),
-    },
-    text: lines.join("\n"),
-  };
+  console.log(lines.join("\n"));
 }
