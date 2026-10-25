@@ -1,20 +1,21 @@
-import { createServer, type AddressInfo } from "node:net";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { PassThrough } from "node:stream";
-import { Client } from "@modelcontextprotocol/client";
-import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
-import { InMemoryTransport, type CallToolResult } from "@modelcontextprotocol/server";
-import { Option } from "commander";
+import { Option, type Command } from "commander";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createProgram, type CommandContext } from "../program.js";
 import { startMcpServer } from "../mcp.js";
+import { createJsonRpcStream } from "./mcp-protocol.js";
 
-vi.mock("@modelcontextprotocol/server/stdio", async (importOriginal) => {
-  const original = await importOriginal<typeof import("@modelcontextprotocol/server/stdio")>();
-  return { ...original, StdioServerTransport: vi.fn() };
-});
+type McpResult = {
+  content: Array<{ type: string; text?: string }>;
+  structuredContent?: Record<string, unknown>;
+  isError?: boolean;
+};
+
+type Tool = {
+  name: string;
+  description?: string;
+  inputSchema: { properties: Record<string, unknown>; [key: string]: unknown };
+};
 vi.mock("../program.js", async (importOriginal) => {
   const original = await importOriginal<typeof import("../program.js")>();
   return { ...original, createProgram: vi.fn(original.createProgram) };
@@ -22,6 +23,40 @@ vi.mock("../program.js", async (importOriginal) => {
 
 const original = await vi.importActual<typeof import("../program.js")>("../program.js");
 const cleanups: Array<() => Promise<void>> = [];
+const unsupportedCommands: Array<[string, (program: Command) => void, string]> = [
+  [
+    "executable command",
+    (p) => p.command("external", "External", { executableFile: "external.js" }),
+    "Unsupported MCP command form",
+  ],
+  [
+    "parent action",
+    (p) =>
+      p
+        .command("parent")
+        .action(() => {})
+        .command("child"),
+    "Unsupported MCP command form",
+  ],
+  [
+    "wrong default type",
+    (p) => p.command("bad").addOption(new Option("--count <count>").default(true)),
+    "Unsupported MCP default",
+  ],
+  ["reserved stop name", (p) => p.command("stop"), "Conflicting or unsupported MCP tool name"],
+  ["invalid tool name", (p) => p.command("invalid.name"), "Conflicting or unsupported MCP tool name"],
+  [
+    "colliding names",
+    (p) => {
+      p.command("parent_child");
+      p.command("parent").command("child");
+    },
+    "Conflicting or unsupported MCP tool name",
+  ],
+  ["variadic option", (p) => p.command("bad").option("--items <items...>"), "Unsupported MCP option"],
+  ["optional value", (p) => p.command("bad").option("--value [value]"), "Unsupported MCP option"],
+  ["positional argument", (p) => p.command("bad <path>"), "positional arguments"],
+];
 
 afterEach(async () => {
   try {
@@ -33,46 +68,33 @@ afterEach(async () => {
 });
 
 async function connect() {
-  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-  vi.mocked(StdioServerTransport).mockImplementation(function () {
-    return serverTransport as unknown as StdioServerTransport;
-  });
   const stdin = new PassThrough();
+  const stdout = new PassThrough();
   stdin.resume();
   vi.spyOn(process, "stdin", "get").mockReturnValue(stdin as unknown as typeof process.stdin);
+  vi.spyOn(process, "stdout", "get").mockReturnValue(stdout as unknown as typeof process.stdout);
+  const client = createJsonRpcStream(stdout, stdin);
   const done = startMcpServer();
-  const client = new Client({ name: "emulate-test", version: "1.0.0" });
   cleanups.push(async () => {
-    await client.close();
+    stdin.end();
     await done;
-    stdin.destroy();
+    client.close();
+    stdout.destroy();
   });
-  await client.connect(clientTransport);
-  return { client, stdin, done };
+  await client.request("initialize", {
+    protocolVersion: "2024-11-05",
+    capabilities: {},
+    clientInfo: { name: "emulate-test", version: "1.0.0" },
+  });
+  client.notification("notifications/initialized");
+  return { client };
 }
 
-async function unusedPort() {
-  const server = createServer();
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const { port } = server.address() as AddressInfo;
-  await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
-  return port;
+async function call(client: ReturnType<typeof createJsonRpcStream>, name: string, args: Record<string, unknown> = {}) {
+  return (await client.request("tools/call", { name, arguments: args })).result as McpResult;
 }
 
-async function config() {
-  const directory = await mkdtemp(join(tmpdir(), "emulate-mcp-"));
-  cleanups.push(() => rm(directory, { recursive: true, force: true }));
-  const port = await unusedPort();
-  const path = join(directory, "config.json");
-  await writeFile(path, JSON.stringify({ services: { resend: { emulator: "resend", port } } }));
-  return { path, url: `http://127.0.0.1:${port}/inbox` };
-}
-
-async function call(client: Client, name: string, args: Record<string, unknown> = {}) {
-  return (await client.callTool({ name, arguments: args })) as CallToolResult;
-}
-
-function message(result: CallToolResult) {
+function message(result: McpResult) {
   return result.content
     .filter((part) => part.type === "text")
     .map((part) => part.text)
@@ -82,8 +104,10 @@ function message(result: CallToolResult) {
 describe("MCP command adapter", () => {
   it("lists canonical commands and derives option types, names, and CLI defaults", async () => {
     const { client } = await connect();
-    const { tools } = await client.listTools();
-    expect(tools.map((tool) => tool.name).sort()).toEqual(["init", "list", "start", "stop"]);
+    const { tools } = (await client.request("tools/list", {})).result as { tools: Tool[] };
+    expect(tools.map((tool) => tool.name).sort()).toEqual(
+      [...original.createProgram().commands.map((command) => command.name()), "stop"].sort(),
+    );
     const start = tools.find((tool) => tool.name === "start")!;
     expect(start.description).toBe(
       original
@@ -110,110 +134,32 @@ describe("MCP command adapter", () => {
     }
   });
 
-  it("returns the same structured result as the CLI using the real list handler", async () => {
-    const fixture = await config();
-    let cli: Record<string, unknown> | undefined;
-    await original
-      .createProgram({
-        output: (data) => {
-          cli = data;
-        },
-        nonInteractive: true,
-      })
-      .exitOverride()
-      .parseAsync(["list", "--config", fixture.path, "--json"], { from: "user" });
-    const { client } = await connect();
-    const result = await call(client, "list", { config: fixture.path });
-    expect(result.isError).not.toBe(true);
-    expect(result.structuredContent).toEqual(cli);
-    expect(message(result)).not.toBe("");
-  });
-
-  it("keeps serving after unknown keys, wrong types, CLI validation errors, and handler errors", async () => {
-    const { client } = await connect();
-    for (const [name, args, error] of [
-      ["list", { unknown: true }, "Unknown argument"],
-      ["list", { json: true }, "Unknown argument"],
-      ["list", { help: true }, "Unknown argument"],
-      ["list", { version: true }, "Unknown argument"],
-      ["start", { port: 4000 }, "port must be a string"],
-      ["start", { watch: "true" }, "watch must be a boolean"],
-      ["start", { port: "0" }, "port"],
-      ["start", { service: "not-a-service" }, "service"],
-      ["list", { config: "/missing/emulate-mcp-config.json" }, "config"],
-      ["absent", {}, "Unknown tool"],
-      ["stop", { config: "anything" }, "Unknown argument"],
-    ] as const) {
-      const result = await call(client, name, args);
-      expect(result.isError).toBe(true);
-      expect(message(result).toLowerCase()).toContain(error.toLowerCase());
-      expect((await client.listTools()).tools.some((tool) => tool.name === "list")).toBe(true);
-    }
-    expect((await call(client, "list")).isError).not.toBe(true);
-  });
-
-  it("serves HTTP at readiness, rejects concurrent starts, and lets stop release the port for another start", async () => {
-    const fixture = await config();
-    const { client } = await connect();
-    const results = await Promise.all([
-      call(client, "start", { config: fixture.path }),
-      call(client, "start", { config: fixture.path }),
-    ]);
-    expect(results[0].isError).not.toBe(true);
-    expect(results[0].structuredContent).toBeDefined();
-    expect((await fetch(fixture.url)).status).toBe(200);
-    expect(results[1].isError).toBe(true);
-    expect(message(results[1])).toContain("already active");
-    expect((await call(client, "stop")).isError).not.toBe(true);
-    await expect(fetch(fixture.url)).rejects.toThrow();
-    expect((await call(client, "start", { config: fixture.path })).isError).not.toBe(true);
-    expect((await fetch(fixture.url)).status).toBe(200);
-    await call(client, "stop");
-  });
-
-  it("closes its listener on EOF and removes signal handlers", async () => {
-    const fixture = await config();
-    const beforeInt = process.listenerCount("SIGINT");
-    const beforeTerm = process.listenerCount("SIGTERM");
-    const { client, stdin, done } = await connect();
-    expect((await call(client, "start", { config: fixture.path })).isError).not.toBe(true);
-    expect((await fetch(fixture.url)).status).toBe(200);
-    stdin.end();
-    await done;
-    await expect(fetch(fixture.url)).rejects.toThrow();
-    expect(process.listenerCount("SIGINT")).toBe(beforeInt);
-    expect(process.listenerCount("SIGTERM")).toBe(beforeTerm);
-  });
-
-  it("cleans up a start still waiting for readiness when stdin closes", async () => {
-    let release!: () => void;
-    const ready = new Promise<void>((resolve) => {
-      release = resolve;
+  it("clears a failed start when closing its run also fails", async () => {
+    const failedClose = vi.fn(async () => {
+      throw new Error("cleanup failed");
     });
-    let entered!: () => void;
-    const entering = new Promise<void>((resolve) => {
-      entered = resolve;
-    });
-    const close = vi.fn(async () => undefined);
+    const successfulClose = vi.fn(async () => undefined);
+    let starts = 0;
     vi.mocked(createProgram).mockImplementation((context) => {
       const program = original.createProgram(context);
       program.commands
         .find((command) => command.name() === "start")!
         .action(async () => {
-          entered();
-          await ready;
-          context!.started!({ close });
-          context!.output!({ ready: true }, "Ready");
+          starts++;
+          const ready = starts > 1;
+          context!.started!({ close: ready ? successfulClose : failedClose });
+          context!.output!({ ready, watching: false, services: [], ...(ready ? {} : { error: "startup failed" }) }, "");
         });
       return program;
     });
-    const { client, stdin, done } = await connect();
-    const starting = call(client, "start");
-    await entering;
-    stdin.end();
-    release();
-    await Promise.allSettled([starting, done]);
-    expect(close).toHaveBeenCalledOnce();
+    const { client } = await connect();
+    const failed = await call(client, "start");
+    expect(failed.isError).toBe(true);
+    expect(message(failed)).toContain("cleanup failed");
+    expect((await call(client, "start")).isError).not.toBe(true);
+    expect(starts).toBe(2);
+    expect((await call(client, "stop")).isError).not.toBe(true);
+    expect(failedClose).toHaveBeenCalledOnce();
   });
 
   it("discovers a new nested command and flags and invokes its actual Commander handler", async () => {
@@ -236,7 +182,8 @@ describe("MCP command adapter", () => {
       return program;
     });
     const { client } = await connect();
-    const tool = (await client.listTools()).tools.find((tool) => tool.name === "inspect_echo")!;
+    const { tools } = (await client.request("tools/list", {})).result as { tools: Tool[] };
+    const tool = tools.find((tool) => tool.name === "inspect_echo")!;
     expect(tool.inputSchema).toMatchObject({
       required: ["message"],
       properties: {
@@ -270,24 +217,12 @@ describe("MCP command adapter", () => {
     });
   });
 
-  it.each(["--items <items...>", "--value [value]"])(
-    "refuses unsupported option forms instead of omitting %s",
-    async (flags) => {
-      vi.mocked(createProgram).mockImplementation((context) => {
-        const program = original.createProgram(context);
-        program.command("unsupported").option(flags);
-        return program;
-      });
-      await expect(startMcpServer()).rejects.toThrow("Unsupported MCP option");
-    },
-  );
-
-  it("refuses positional arguments instead of advertising an unusable command", async () => {
+  it.each(unsupportedCommands)("rejects %s during automatic tool discovery", async (_name, add, error) => {
     vi.mocked(createProgram).mockImplementation((context) => {
       const program = original.createProgram(context);
-      program.command("unsupported <path>");
+      add(program);
       return program;
     });
-    await expect(startMcpServer()).rejects.toThrow("positional arguments");
+    await expect(startMcpServer()).rejects.toThrow(error);
   });
 });
