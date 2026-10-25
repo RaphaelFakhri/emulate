@@ -30,8 +30,5 @@ export function initCommand(options: InitOptions) {
   const content = yamlStringify(config);
   writeFileSync(fullPath, content, { encoding: "utf-8", flag: "wx" });
 
-  return {
-    data: { path: fullPath, services: options.service === "all" ? [...SERVICE_NAMES] : [options.service] },
-    text: `Created ${filename}\n\nRun 'npx emulate' to start the emulator.`,
-  };
+  console.log(`Created ${filename}\n\nRun 'npx emulate' to start the emulator.`);
 }

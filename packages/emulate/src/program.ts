@@ -7,29 +7,14 @@ import { scaffoldCommand } from "./commands/scaffold.js";
 
 declare const PKG_VERSION: string;
 
-export interface CommandContext {
-  output?: (data: Record<string, unknown>, text: string) => void;
-  started?: (run: { close(): Promise<void> }) => void;
-  nonInteractive?: boolean;
-  signal?: AbortSignal;
-}
-
-export function createProgram(context: CommandContext = {}): Command {
+export function createProgram(): Command {
   const defaultPort = process.env.EMULATE_PORT ?? process.env.PORT ?? "4000";
   const program = new Command();
-  const write = process.stdout.write.bind(process.stdout);
-  const output = (data: Record<string, unknown>, text: string) => {
-    if (context.output) context.output(data, text);
-    else if (program.opts().json) write(`${JSON.stringify(data)}\n`);
-    else console.log(text);
-  };
-  if (context.output) program.configureOutput({ writeOut: (text) => process.stderr.write(text) });
 
   program
     .name("emulate")
     .description("Local drop-in replacement services for CI and no-network sandboxes")
     .version(PKG_VERSION)
-    .option("--json", "Print structured command results as JSON")
     .exitOverride()
     .configureOutput({ outputError: () => {} })
     .addHelpText(
@@ -203,26 +188,17 @@ Slack event callbacks:
     .action(async (opts) => {
       const port = parseInt(opts.port, 10);
       if (Number.isNaN(port) || port < 1 || port > 65535) throw new Error(`Invalid port: ${opts.port}`);
-      await projectStartCommand(
-        {
-          port,
-          host: opts.host,
-          service: opts.service,
-          seed: opts.seed,
-          config: opts.config,
-          watch: opts.watch,
-          baseUrl: opts.baseUrl,
-          portless: opts.portless,
-          generatedSecretsFile: opts.generatedSecretsFile,
-        },
-        {
-          ...context,
-          output,
-          handleSignals: !context.started && !context.output && !context.nonInteractive,
-          diagnosticsToStderr: Boolean(context.output || program.opts().json),
-          nonInteractive: context.nonInteractive || Boolean(program.opts().json),
-        },
-      );
+      await projectStartCommand({
+        port,
+        host: opts.host,
+        service: opts.service,
+        seed: opts.seed,
+        config: opts.config,
+        watch: opts.watch,
+        baseUrl: opts.baseUrl,
+        portless: opts.portless,
+        generatedSecretsFile: opts.generatedSecretsFile,
+      });
     });
 
   program
@@ -232,8 +208,8 @@ Slack event callbacks:
     .option("--custom <name>", "Scaffold a third-party API emulator, config, and test")
     .option("--config <file>", "Existing configuration to update when scaffolding a custom API")
     .action((opts) => {
-      const result = opts.custom ? scaffoldCommand(opts.custom, opts.config) : initCommand({ service: opts.service });
-      output(result.data, result.text);
+      if (opts.custom) scaffoldCommand(opts.custom, opts.config);
+      else initCommand({ service: opts.service });
     });
 
   program
@@ -242,8 +218,7 @@ Slack event callbacks:
     .description("List available services")
     .option("--config <file>", "Configuration containing custom services")
     .action(async (opts) => {
-      const result = await listCommand(opts.config);
-      output(result.data, result.text);
+      await listCommand(opts.config);
     });
 
   return program;

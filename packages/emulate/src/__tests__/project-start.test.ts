@@ -70,18 +70,28 @@ class Worker extends EventEmitter {
 }
 
 const runs: Array<{ close(): Promise<void> }> = [];
+const connectedDescriptor = Object.getOwnPropertyDescriptor(process, "connected");
+const sendDescriptor = Object.getOwnPropertyDescriptor(process, "send");
 beforeEach(() => {
   vi.clearAllMocks();
   vi.spyOn(console, "error").mockImplementation(() => {});
+  vi.spyOn(console, "log").mockImplementation(() => {});
+  vi.spyOn(process, "exit").mockImplementation(() => undefined as never);
 });
 afterEach(async () => {
   await Promise.all(runs.splice(0).map((run) => run.close()));
   vi.restoreAllMocks();
+  for (const [key, descriptor] of [
+    ["connected", connectedDescriptor],
+    ["send", sendDescriptor],
+  ] as const) {
+    if (descriptor) Object.defineProperty(process, key, descriptor);
+    else Reflect.deleteProperty(process, key);
+  }
 });
 
 it.each(["start", "watch", "watch-ready"])("rolls back secrets when stopped before readiness: %s", async (mode) => {
   const watch = mode !== "start";
-  const controller = new AbortController();
   mocks.fork.mockReturnValue(new Worker(metadata()));
   let resumeWatch!: () => void;
   if (mode === "watch-ready")
@@ -102,16 +112,12 @@ it.each(["start", "watch", "watch-ready"])("rolls back secrets when stopped befo
       publish = resolve;
     }),
   );
-  let owned!: (run: { close(): Promise<void> }) => void;
-  const ownership = new Promise<{ close(): Promise<void> }>((resolve) => {
-    owned = resolve;
-  });
-  const starting = projectStartCommand(
-    { port: 4000, service: "resend", watch, generatedSecretsFile: "/tmp/stopped-secrets.json" },
-    { signal: controller.signal, started: owned },
-  ).catch((error) => error);
-  const run = await ownership;
-  runs.push(run);
+  const starting = projectStartCommand({
+    port: 4000,
+    service: "resend",
+    watch,
+    generatedSecretsFile: "/tmp/stopped-secrets.json",
+  }).catch((error) => error);
   await vi.waitFor(() => expect(secretsFile.publishGeneratedSecretsFile).toHaveBeenCalledOnce());
   let artifactExists = true;
   const artifact = {
@@ -125,46 +131,53 @@ it.each(["start", "watch", "watch-ready"])("rolls back secrets when stopped befo
     publish(artifact);
     await vi.waitFor(() => expect(mocks.update).toHaveBeenCalledOnce());
   }
-  const stopped = new Error("startup stopped");
-  controller.abort(stopped);
-  let closed = false;
-  const closing = run.close().then(() => {
-    closed = true;
-  });
+  process.listeners("SIGTERM").at(-1)!("SIGTERM");
   try {
     await new Promise((resolve) => setImmediate(resolve));
-    expect(closed).toBe(false);
+    expect(process.exit).not.toHaveBeenCalled();
   } finally {
     if (mode === "watch-ready") resumeWatch();
     else publish(artifact);
   }
-  await closing;
+  await vi.waitFor(() => expect(process.exit).toHaveBeenCalledWith(0));
   expect(artifactExists).toBe(false);
-  if (watch) expect(await starting).toBe(run);
-  else expect(await starting).toBe(stopped);
+  const result = await starting;
+  if (watch) await result.close();
+  else expect(result).toEqual(new Error("Emulator startup stopped"));
 });
 
-describe("embedded watch lifecycle", () => {
+describe("CLI watch lifecycle", () => {
   it("reports a failed initial load and recovers when a missing dependency is created", async () => {
     const broken = new Worker(metadata(), "Missing import");
     const recovered = new Worker(metadata());
     mocks.fork.mockReturnValueOnce(broken).mockReturnValueOnce(recovered);
-    const output = vi.fn();
-    const run = await projectStartCommand({ port: 4000, watch: true }, { output, nonInteractive: true });
+    Object.defineProperty(process, "connected", { value: true, configurable: true, writable: true });
+    const send = vi.fn();
+    Object.defineProperty(process, "send", { value: send, configurable: true, writable: true });
+    const run = await projectStartCommand({ port: 4000, watch: true });
     runs.push(run);
-    expect(output).toHaveBeenLastCalledWith(
-      { ready: false, watching: true, services: [], error: "Missing import" },
-      expect.stringContaining("Fix the source and save to retry"),
-    );
+    expect(send).toHaveBeenLastCalledWith({ type: "emulate:error", error: "Missing import" }, expect.any(Function));
     expect(mocks.update).toHaveBeenCalledWith(expect.any(Set), [], true);
     expect([...mocks.update.mock.calls[0][0]]).toContain("/tmp/emulate-watch/missing.ts");
     mocks.change?.("/tmp/emulate-watch/missing.ts");
     await vi.waitFor(() =>
-      expect(output).toHaveBeenLastCalledWith(
-        expect.objectContaining({ ready: true, services: recovered.metadata.services }),
-        expect.stringContaining("Watching imports"),
+      expect(send).toHaveBeenLastCalledWith(
+        { type: "emulate:ready", text: expect.stringContaining("Watching imports") },
+        expect.any(Function),
       ),
     );
+    expect(console.log).toHaveBeenLastCalledWith(expect.stringContaining("Watching imports"));
     expect(broken.connected).toBe(false);
   });
+});
+
+it.each(["SIGTERM", "disconnect"] as const)("propagates shutdown failure on %s", async (event) => {
+  mocks.fork.mockReturnValue(new Worker(metadata()));
+  const run = await projectStartCommand({ port: 4000, watch: true });
+  mocks.close.mockRejectedValueOnce(new Error("Watcher close failed"));
+  const listeners = event === "SIGTERM" ? process.listeners("SIGTERM") : process.listeners("disconnect");
+  listeners.at(-1)!("SIGTERM");
+  await vi.waitFor(() => expect(process.exit).toHaveBeenCalledWith(1));
+  expect(console.error).toHaveBeenCalledWith(expect.any(AggregateError));
+  await expect(run.close()).rejects.toThrow("Failed to shut down watch");
 });

@@ -18,7 +18,7 @@ export async function listCommand(configPath?: string) {
       .map(({ name, source }) => ({ name, source }));
     if (configuredInstances.length) lines.push("Configured instances:\n");
     for (const service of configuredInstances) lines.push(`  ${service.name.padEnd(16)}${service.source}`);
-    return { data: { services, configuredInstances }, text: lines.join("\n") };
+    console.log(lines.join("\n"));
   } finally {
     config.loader.close();
   }
