@@ -12,13 +12,31 @@ import {
   type PublishedGeneratedSecretsFile,
 } from "../generated-secrets-file.js";
 
-function readyResult(metadata: RunMetadata, watching: boolean) {
+function readyResult(metadata: RunMetadata, watching: boolean, machineOutput: boolean) {
+  function displayUrl(value: string): string {
+    if (!machineOutput) return value;
+    try {
+      const url = new URL(value);
+      const sensitive = [...url.searchParams.keys()].filter((key) =>
+        /token|secret|password|credential|signature|session|cookie|(?:api|private)[_-]?key|^(?:auth|authorization|key|code|sig)$/i.test(
+          key,
+        ),
+      );
+      if (!url.username && !url.password && !sensitive.length) return value;
+      url.username = "";
+      url.password = "";
+      for (const key of sensitive) url.searchParams.set(key, "[redacted]");
+      return url.href;
+    } catch {
+      return "[redacted]";
+    }
+  }
   const services = metadata.services.map(({ name, url, port, source, inspectorUrl }) => ({
     name,
-    url,
+    url: displayUrl(url),
     port,
     source,
-    ...(inspectorUrl ? { inspectorUrl } : {}),
+    ...(inspectorUrl ? { inspectorUrl: displayUrl(inspectorUrl) } : {}),
   }));
   const lines = ["\nemulate\n"];
   for (const service of services) {
@@ -126,6 +144,7 @@ export async function projectStartCommand(
   if (!options.watch) {
     const run = await prepareProject(options);
     let managed: { close(): Promise<void> } | undefined;
+    let ready = false;
     try {
       if (target)
         published = await publishGeneratedSecretsFile(target, {
@@ -136,16 +155,18 @@ export async function projectStartCommand(
         await setupPortless(run.metadata.aliases);
         aliases = run.metadata.aliases;
       }
-      await run.start();
       managed = manageRun(async () => {
         try {
           await run.close();
         } finally {
           removeAliases(aliases);
+          if (!ready) await published?.rollback();
         }
       });
       context.started?.(managed);
-      const result = readyResult(run.metadata, false);
+      await run.start();
+      ready = true;
+      const result = readyResult(run.metadata, false, diagnosticsToStderr);
       output(result.data, result.text);
       return managed;
     } catch (error) {
@@ -256,7 +277,7 @@ export async function projectStartCommand(
       failed = false;
       await watcher.update(dependencies, patterns, false);
       if (stopped) return;
-      const result = readyResult(metadata, true);
+      const result = readyResult(metadata, true, diagnosticsToStderr);
       currentServices = result.data.services;
       output(result.data, result.text);
     } catch (error) {
@@ -324,9 +345,9 @@ export async function projectStartCommand(
     }
   });
   try {
-    await watcher.start();
-    await queueReload();
     context.started?.(run);
+    await watcher.start();
+    if (!stopped) await queueReload();
     return run;
   } catch (error) {
     await run.close().catch(console.error);

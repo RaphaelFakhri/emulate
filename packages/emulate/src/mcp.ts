@@ -116,7 +116,9 @@ export async function startMcpServer(): Promise<void> {
         },
         started: (run) => {
           started = run;
+          if (closing) throw new Error("MCP server is closing");
           if (active) throw new Error("An emulator run is already active. Call stop before starting again.");
+          active = run;
         },
       });
       const chain = [program];
@@ -152,6 +154,7 @@ export async function startMcpServer(): Promise<void> {
       if (started) {
         try {
           await started.close();
+          if (active === started) active = undefined;
         } catch (cleanup) {
           active ??= started;
           message += `; cleanup failed: ${cleanup instanceof Error ? cleanup.message : String(cleanup)}`;
@@ -209,7 +212,6 @@ export async function startMcpServer(): Promise<void> {
         closing = true;
         void (async () => {
           try {
-            await pending;
             await stop();
           } finally {
             await handle.close();

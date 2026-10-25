@@ -146,7 +146,7 @@ export async function prepareProject(
         cleanups.push(() => runtime.close());
         activations.push(async () => {
           if (persistence && pending !== undefined) await persistence.save(pending);
-          active = true;
+          if (!closed) active = true;
         });
         prepared.push({ fetch: runtime.fetch, port });
         metadata.services.push({
@@ -168,6 +168,7 @@ export async function prepareProject(
       async start() {
         try {
           for (const item of prepared) {
+            if (closed) throw new Error("Project closed during startup");
             const server = serve({
               ...item,
               hostname: options.host,
@@ -185,7 +186,11 @@ export async function prepareProject(
               );
             }
           }
-          for (const activate of activations) await activate();
+          for (const activate of activations) {
+            if (closed) throw new Error("Project closed during startup");
+            await activate();
+          }
+          if (closed) throw new Error("Project closed during startup");
           accepting = true;
         } catch (error) {
           await close().catch((cleanup) => console.error(cleanup));

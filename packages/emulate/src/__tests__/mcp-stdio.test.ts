@@ -30,6 +30,7 @@ describe("built MCP stdio", () => {
       const directory = await mkdtemp(join(tmpdir(), "emulate-mcp-stdio-"));
       const port = await unusedPort();
       const url = `http://127.0.0.1:${port}/`;
+      const advertisedUrl = `http://stdio-user:stdio-password@localhost:${port}/?access_token=stdio-token&access_token=stdio-token-two&client%5Fsecret=stdio-client-secret&apiKey=stdio-api-key&X-Amz-Signature=stdio-signature&public=kept`;
       const config = join(directory, "config.mjs");
       await mkdir(join(directory, "node_modules"));
       await symlink(root, join(directory, "node_modules/emulate"), "junction");
@@ -46,11 +47,11 @@ export default {
       emulator: defineEmulator({
         name: "counter",
         state: () => ({ count: 7 }),
-        setup({ app, state }) {
+        setup({ app, state, baseUrl }) {
           console.log("setup stdout noise");
           app.get("/", (c) => {
             process.stdout.write("request stdout noise\\n");
-            return c.json(state);
+            return c.json({ ...state, baseUrl });
           });
         }
       })
@@ -61,6 +62,7 @@ export default {
       );
       const child = spawn(process.execPath, [join(root, "dist/index.js"), "mcp"], {
         cwd: directory,
+        env: { ...process.env, EMULATE_BASE_URL: advertisedUrl, PORTLESS_URL: "" },
         stdio: ["pipe", "pipe", "pipe"],
       });
       let stderr = "";
@@ -93,7 +95,31 @@ export default {
         }
         const result = await client.callTool({ name: "start", arguments: { config, watch } });
         expect(result.isError, JSON.stringify(result)).not.toBe(true);
-        expect(await (await fetch(url, { signal: AbortSignal.timeout(3000) })).json()).toEqual({ count: 7 });
+        const { services } = result.structuredContent as {
+          services: Array<{ url: string; inspectorUrl: string }>;
+        };
+        for (const value of [services[0].url, services[0].inspectorUrl]) {
+          const advertised = new URL(value);
+          expect(advertised.username).toBe("");
+          expect(advertised.password).toBe("");
+          expect(advertised.searchParams.getAll("access_token")).toEqual(["[redacted]"]);
+          for (const key of ["client_secret", "apiKey", "X-Amz-Signature"])
+            expect(advertised.searchParams.get(key)).toBe("[redacted]");
+        }
+        expect(new URL(services[0].url).searchParams.get("public")).toBe("kept");
+        for (const secret of [
+          "stdio-user",
+          "stdio-password",
+          "stdio-token",
+          "stdio-client-secret",
+          "stdio-api-key",
+          "stdio-signature",
+        ])
+          expect(JSON.stringify(result)).not.toContain(secret);
+        expect(await (await fetch(url, { signal: AbortSignal.timeout(3000) })).json()).toEqual({
+          count: 7,
+          baseUrl: advertisedUrl,
+        });
         expect((await client.listTools()).tools.length).toBeGreaterThan(0);
         if (signal) child.kill(signal);
         else child.stdin.end();
