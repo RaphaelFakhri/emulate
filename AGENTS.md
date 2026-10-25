@@ -12,7 +12,7 @@ Exception: End-user install instructions should use `npm` (e.g. `npx emulate`, `
 
 ## MCP Maintenance
 
-MCP tools and inputs must come from the shared CLI command and option definitions; protocol and behavioral regression tests gate changes to that mapping.
+MCP tools and inputs must come from the shared CLI command and option definitions; protocol and behavioral regression tests gate changes to that mapping. New command handlers must return results through the shared output callback so CLI JSON and MCP results stay in sync.
 
 ## Dependencies
 

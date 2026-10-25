@@ -2,37 +2,83 @@
 title: "MCP Server"
 ---
 
-`npx emulate mcp` starts a local Model Context Protocol server over stdio. It lets an MCP client run emulate's CLI commands against the project where the client starts the server.
+`npx emulate mcp` lets your coding agent list services, create a config, and start or stop local emulators. It runs over stdio and uses the same command handlers as the CLI.
 
-## Configure your client
+## Setup
 
-Add this command and argument list to your MCP client's server configuration:
+Run your agent from the project root so emulate finds the right config and resolves file paths correctly. Only use projects you trust: TypeScript and JavaScript configs execute local code.
+
+### Claude Code
+
+Run this in your project:
+
+```bash
+claude mcp add --transport stdio --scope project emulate -- npx -y emulate mcp
+```
+
+This saves the server in `.mcp.json`. Open Claude Code, approve the project server when prompted, and use `/mcp` to check its status.
+
+### Codex
+
+Add this to your project's `.codex/config.toml`:
+
+```toml
+[mcp_servers.emulate]
+command = "npx"
+args = ["-y", "emulate", "mcp"]
+cwd = "/absolute/path/to/your/project"
+```
+
+Replace `cwd` with your project root. Codex loads project config after you trust the project. Use `/mcp` to check the connection.
+
+### fx
+
+Open fx in your project and run:
+
+```text
+/mcp add --project emulate -- npx -y emulate mcp
+/mcp approve emulate
+/mcp show emulate
+```
+
+The server is saved in `.mcp.json`. The last command connects and lists its tools.
+
+### Other clients
+
+For clients that use `mcpServers`, add:
 
 ```json
 {
-  "command": "npx",
-  "args": ["-y", "emulate", "mcp"]
+  "mcpServers": {
+    "emulate": {
+      "command": "npx",
+      "args": ["-y", "emulate", "mcp"]
+    }
+  }
 }
 ```
 
-Set the server process working directory to your project root in the client's configuration. emulate resolves local config files and file paths from that directory. If the client starts the process elsewhere, it may load a different config or fail to find project files.
+Set the server's working directory to your project root using your client's settings. To keep the version fixed, install emulate in the project with `npm install --save-dev --save-exact emulate`.
 
-TypeScript and JavaScript config files run as trusted local code, the same way they do when you use the CLI. Only start the server for projects whose config you trust.
+## Try it
 
-## Tools and inputs
+Ask your agent: **"List the available emulate services, then start Resend."**
 
-The server exposes the CLI's `start`, `init`, and `list` commands as tools. It also provides `stop` to close the emulator run started by this server. These tools call the same handlers as the CLI in the MCP process.
+| Tool | What it does |
+| --- | --- |
+| `list` | Lists available services. |
+| `init` | Creates a config without overwriting an existing file. |
+| `start` | Starts emulators and returns their URLs once ready. |
+| `stop` | Stops the run owned by this connection. |
 
-Tool inputs use camelCase names. For example, CLI flags `--base-url` and `--generated-secrets-file` map to `baseUrl` and `generatedSecretsFile`. String flags remain strings, including `port`; boolean flags remain booleans.
+Each connection owns one run. Call `stop` before starting another. A failed start can be retried. Closing the connection also stops its emulators. In watch mode, later reload errors go to stderr.
 
-The `start` tool supports one emulator run at a time. It returns when the services are ready and includes their URLs. If initial startup fails, the tool reports an error and closes the attempted run so you can retry. `stop` closes that run. Ending the MCP process or closing its stdio connection also closes the run. The process does not leave a detached daemon behind.
+Inputs follow the CLI flags in camelCase: `--base-url` becomes `baseUrl`. Value flags take strings, including `port`; switches take booleans. Your client may prefix tool names with `emulate`.
 
-The `mcp` command and presentation flags such as `--json`, `--help`, and `--version` are not tools or tool inputs. Use `--json` with ordinary CLI commands when you need structured CLI results, for example `npx emulate list --json`. Diagnostics go to stderr. With `start --watch --json`, each readiness or reload update is a separate JSON line.
+## CLI and MCP
 
-Command names, descriptions, and string or boolean options come from the shared CLI definitions. New supported commands and options appear automatically. Unsupported forms, such as positional or variadic arguments, fail discovery rather than silently disappearing.
+Tools and their inputs come from the shared CLI definitions, so supported commands and options appear automatically. Unsupported command forms fail discovery. The `mcp` command and presentation flags such as `--json` are excluded.
 
-## Scope
+For scripts, use `npx emulate list --json`. Diagnostics go to stderr; `start --watch --json` emits one JSON line per readiness or reload update.
 
-This is a local stdio server. It does not expose the emulators as a remote HTTP MCP service, add profiles, or provide a tool for every service API.
-
-The MCP endpoint on the emulate website is separate. It searches the documentation and does not control a local emulator.
+This local server controls emulators. The website's MCP endpoint only searches documentation.
