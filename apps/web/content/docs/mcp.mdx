@@ -1,0 +1,38 @@
+---
+title: "MCP Server"
+---
+
+`npx emulate mcp` starts a local Model Context Protocol server over stdio. It lets an MCP client run emulate's CLI commands against the project where the client starts the server.
+
+## Configure your client
+
+Add this command and argument list to your MCP client's server configuration:
+
+```json
+{
+  "command": "npx",
+  "args": ["-y", "emulate", "mcp"]
+}
+```
+
+Set the server process working directory to your project root in the client's configuration. emulate resolves local config files and file paths from that directory. If the client starts the process elsewhere, it may load a different config or fail to find project files.
+
+TypeScript and JavaScript config files run as trusted local code, the same way they do when you use the CLI. Only start the server for projects whose config you trust.
+
+## Tools and inputs
+
+The server exposes the CLI's `start`, `init`, and `list` commands as tools. It also provides `stop` to close the emulator run started by this server. These tools call the same handlers as the CLI in the MCP process.
+
+Tool inputs use camelCase names. For example, CLI flags `--base-url` and `--generated-secrets-file` map to `baseUrl` and `generatedSecretsFile`. String flags remain strings, including `port`; boolean flags remain booleans.
+
+The `start` tool supports one emulator run at a time. It returns when the services are ready and includes their URLs. If initial startup fails, the tool reports an error and closes the attempted run so you can retry. `stop` closes that run. Ending the MCP process or closing its stdio connection also closes the run. The process does not leave a detached daemon behind.
+
+The `mcp` command and presentation flags such as `--json`, `--help`, and `--version` are not tools or tool inputs. Use `--json` with ordinary CLI commands when you need structured CLI results, for example `npx emulate list --json`. Diagnostics go to stderr. With `start --watch --json`, each readiness or reload update is a separate JSON line.
+
+Command names, descriptions, and string or boolean options come from the shared CLI definitions. New supported commands and options appear automatically. Unsupported forms, such as positional or variadic arguments, fail discovery rather than silently disappearing.
+
+## Scope
+
+This is a local stdio server. It does not expose the emulators as a remote HTTP MCP service, add profiles, or provide a tool for every service API.
+
+The MCP endpoint on the emulate website is separate. It searches the documentation and does not control a local emulator.
