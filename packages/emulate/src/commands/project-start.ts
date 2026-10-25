@@ -153,7 +153,11 @@ async function startProject(options: ProjectOptions, signal: AbortSignal, own: (
         await run?.close();
       } finally {
         removeAliases(aliases);
-        if (!ready) await (await publishing)?.rollback();
+        if (!ready)
+          await publishing?.then(
+            (file) => file.rollback(),
+            () => undefined,
+          );
       }
     };
     own(close);

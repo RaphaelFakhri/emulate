@@ -46,7 +46,7 @@ When a change affects how humans or agents use emulate (new/changed/removed comm
 1. `README.md`
 2. `skills/*/SKILL.md` (agent skills for each service)
 3. `apps/web/` (docs site pages)
-4. CLI `--help` output in `packages/emulate/src/index.ts`
+4. CLI `--help` output in `packages/emulate/src/program.ts`
 
 ## Releasing
 
