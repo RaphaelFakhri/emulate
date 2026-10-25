@@ -105,8 +105,11 @@ export async function startMcpServer(): Promise<void> {
   let pending = Promise.resolve();
   let closing = false;
   async function stop() {
-    await active?.close();
-    active = undefined;
+    try {
+      await active?.close();
+    } finally {
+      active = undefined;
+    }
   }
   async function call(name: string, args: Record<string, unknown>): Promise<CallToolResult> {
     let started: Run | undefined;
@@ -171,10 +174,10 @@ export async function startMcpServer(): Promise<void> {
       if (started) {
         try {
           await started.close();
-          if (active === started) active = undefined;
         } catch (cleanup) {
-          active ??= started;
           message += `; cleanup failed: ${cleanup instanceof Error ? cleanup.message : String(cleanup)}`;
+        } finally {
+          if (active === started) active = undefined;
         }
       }
       return { content: [{ type: "text", text: message }], isError: true };
