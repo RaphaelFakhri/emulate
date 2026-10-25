@@ -70,10 +70,18 @@ class Worker extends EventEmitter {
 }
 
 const runs: Array<{ close(): Promise<void> }> = [];
-const connectedDescriptor = Object.getOwnPropertyDescriptor(process, "connected");
 const sendDescriptor = Object.getOwnPropertyDescriptor(process, "send");
 beforeEach(() => {
   vi.clearAllMocks();
+  Object.defineProperty(process, "send", {
+    value: vi.fn((message: unknown, ...args: unknown[]) => {
+      if (message && typeof message === "object" && "type" in message)
+        if (message.type === "emulate:ready" || message.type === "emulate:error") return true;
+      return sendDescriptor?.value?.call(process, message, ...args);
+    }),
+    configurable: true,
+    writable: true,
+  });
   vi.spyOn(console, "error").mockImplementation(() => {});
   vi.spyOn(console, "log").mockImplementation(() => {});
   vi.spyOn(process, "exit").mockImplementation(() => undefined as never);
@@ -81,13 +89,8 @@ beforeEach(() => {
 afterEach(async () => {
   await Promise.all(runs.splice(0).map((run) => run.close()));
   vi.restoreAllMocks();
-  for (const [key, descriptor] of [
-    ["connected", connectedDescriptor],
-    ["send", sendDescriptor],
-  ] as const) {
-    if (descriptor) Object.defineProperty(process, key, descriptor);
-    else Reflect.deleteProperty(process, key);
-  }
+  if (sendDescriptor) Object.defineProperty(process, "send", sendDescriptor);
+  else Reflect.deleteProperty(process, "send");
 });
 
 it.each(["start", "watch", "watch-ready"])("rolls back secrets when stopped before readiness: %s", async (mode) => {
@@ -147,7 +150,6 @@ it.each(["start", "watch", "watch-ready"])("rolls back secrets when stopped befo
 });
 
 it.each([false, true])("keeps published secrets after a ready run closes: watch=%s", async (watch) => {
-  Object.defineProperty(process, "connected", { value: false, configurable: true });
   mocks.fork.mockReturnValue(new Worker(metadata()));
   vi.spyOn(secretsFile, "preflightGeneratedSecretsFile").mockResolvedValue({
     path: "/tmp/ready-secrets.json",
@@ -168,7 +170,10 @@ it.each([false, true])("keeps published secrets after a ready run closes: watch=
     watch,
     generatedSecretsFile: "/tmp/ready-secrets.json",
   });
-  expect(console.log).toHaveBeenCalledWith(expect.stringContaining(watch ? "Watching imports" : "Ready."));
+  expect(process.send).toHaveBeenCalledWith(
+    { type: "emulate:ready", text: expect.stringContaining(watch ? "Watching imports" : "Ready.") },
+    expect.any(Function),
+  );
   await run.close();
   expect(artifactExists).toBe(true);
 });
@@ -192,17 +197,17 @@ describe("CLI watch lifecycle", () => {
     const broken = new Worker(metadata(), "Missing import");
     const recovered = new Worker(metadata());
     mocks.fork.mockReturnValueOnce(broken).mockReturnValueOnce(recovered);
-    Object.defineProperty(process, "connected", { value: true, configurable: true, writable: true });
-    const send = vi.fn();
-    Object.defineProperty(process, "send", { value: send, configurable: true, writable: true });
     const run = await projectStartCommand({ port: 4000, watch: true });
     runs.push(run);
-    expect(send).toHaveBeenLastCalledWith({ type: "emulate:error", error: "Missing import" }, expect.any(Function));
+    expect(process.send).toHaveBeenLastCalledWith(
+      { type: "emulate:error", error: "Missing import" },
+      expect.any(Function),
+    );
     expect(mocks.update).toHaveBeenCalledWith(expect.any(Set), [], true);
     expect([...mocks.update.mock.calls[0][0]]).toContain("/tmp/emulate-watch/missing.ts");
     mocks.change?.("/tmp/emulate-watch/missing.ts");
     await vi.waitFor(() =>
-      expect(send).toHaveBeenLastCalledWith(
+      expect(process.send).toHaveBeenLastCalledWith(
         { type: "emulate:ready", text: expect.stringContaining("Watching imports") },
         expect.any(Function),
       ),
