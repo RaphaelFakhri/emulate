@@ -4,9 +4,8 @@ import { createServer, type AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Client } from "@modelcontextprotocol/client";
-import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import { expect, it } from "vitest";
+import { createJsonRpcStream } from "./mcp-protocol.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -49,10 +48,17 @@ export default { services: { stalled: {
       child.once("error", reject);
       child.once("exit", resolve);
     });
-    const client = new Client({ name: "shutdown-test", version: "1.0.0" });
+    const client = createJsonRpcStream(child.stdout, child.stdin);
     try {
-      await client.connect(new StdioServerTransport(child.stdout, child.stdin), { timeout: 5000 });
-      const starting = client.callTool({ name: "start", arguments: { config, watch } }).catch(() => undefined);
+      await client.request("initialize", {
+        protocolVersion: "2024-11-05",
+        capabilities: {},
+        clientInfo: { name: "shutdown-test", version: "1.0.0" },
+      });
+      client.notification("notifications/initialized");
+      const starting = client
+        .request("tools/call", { name: "start", arguments: { config, watch } })
+        .catch(() => undefined);
       await expect
         .poll(
           async () => {
@@ -73,7 +79,7 @@ export default { services: { stalled: {
     } finally {
       child.kill("SIGKILL");
       await exited;
-      await client.close();
+      client.close();
       await rm(directory, { recursive: true, force: true });
     }
   },

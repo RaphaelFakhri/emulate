@@ -1,4 +1,4 @@
-import { execFile, spawn } from "node:child_process";
+import { execFile, spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer, type AddressInfo } from "node:net";
@@ -80,3 +80,19 @@ it("redacts advertised URL credentials in real CLI JSON readiness", async () => 
     }
   }
 }, 15000);
+
+it("keeps built CLI errors on the requested stream and exits cleanly for help and version", () => {
+  const run = (args: string[]) => spawnSync(process.execPath, [cli, ...args], { cwd: tmpdir(), encoding: "utf8" });
+  const json = run(["start", "--port", "bad", "--json"]);
+  expect(json.status).toBe(1);
+  expect(json.stdout.trimEnd().split(/\r?\n/)).toHaveLength(1);
+  expect(JSON.parse(json.stdout)).toEqual({ error: "Invalid port: bad" });
+  expect(json.stderr).toBe("");
+
+  const text = run(["start", "--port", "bad"]);
+  expect(text.status).toBe(1);
+  expect(text.stdout).toBe("");
+  expect(text.stderr).toContain("Invalid port: bad");
+
+  for (const args of [["--help"], ["--version"]]) expect(run(args).status).toBe(0);
+});
