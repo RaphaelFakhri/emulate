@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { createServer, type AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -14,6 +14,9 @@ it.each([
   { watch: false, signal: "SIGTERM" as const },
   { watch: true, signal: undefined },
   { watch: true, signal: "SIGTERM" as const },
+  { watch: false, signal: "stop" as const },
+  { watch: true, signal: "stop" as const },
+  { watch: false, signal: "stop-preparing" as const },
 ])(
   "closes bound listeners during a stalled startup: watch=$watch, signal=$signal",
   async ({ watch, signal }) => {
@@ -25,17 +28,28 @@ it.each([
     await mkdir(join(directory, "node_modules"));
     await symlink(root, join(directory, "node_modules/emulate"), "junction");
     const config = join(directory, "config.mjs");
-    await writeFile(
-      config,
-      `
+    const preparing = signal === "stop-preparing";
+    const preparedService = preparing
+      ? `prepared: { port: 1, emulator: defineEmulator({
+  name: "prepared", state: () => ({}), setup({ onDispose }) {
+    const timer = setInterval(() => {}, 1000);
+    onDispose(() => { clearInterval(timer); writeFileSync("disposed", "done"); });
+  }
+}) },`
+      : "";
+    const source = `
 import { defineEmulator } from "emulate";
-export default { services: { stalled: {
+import { writeFileSync } from "node:fs";
+export default { services: { ${preparedService} stalled: {
   port: ${port},
   emulator: defineEmulator({ name: "stalled", state: () => ({}), setup({ app }) { app.get("/", c => c.text("ready")); } }),
-  persistence: { load: async () => null, save: () => new Promise(() => {}) }
+  persistence: {
+    load: async () => { ${preparing ? 'writeFileSync("preparing", "ready"); await new Promise(() => {});' : ""} return null; },
+    save: () => new Promise(() => {})
+  }
 } } };
-`,
-    );
+`;
+    await writeFile(config, source);
     const child = spawn(process.execPath, [join(root, "dist/index.js"), "mcp"], {
       cwd: directory,
       stdio: ["pipe", "pipe", "pipe"],
@@ -59,19 +73,46 @@ export default { services: { stalled: {
       const starting = client
         .request("tools/call", { name: "start", arguments: { config, watch } })
         .catch(() => undefined);
-      await expect
-        .poll(
-          async () => {
-            try {
-              return (await fetch(`http://127.0.0.1:${port}/`, { signal: AbortSignal.timeout(500) })).status;
-            } catch {
-              return undefined;
-            }
-          },
-          { timeout: 5000 },
-        )
-        .toBe(503);
-      if (signal) child.kill(signal);
+      if (preparing) {
+        await expect.poll(() => readFile(join(directory, "preparing"), "utf8").catch(() => "")).toBe("ready");
+      } else {
+        await expect
+          .poll(
+            async () => {
+              try {
+                return (await fetch(`http://127.0.0.1:${port}/`, { signal: AbortSignal.timeout(500) })).status;
+              } catch {
+                return undefined;
+              }
+            },
+            { timeout: 5000 },
+          )
+          .toBe(503);
+      }
+      if (signal === "stop" || signal === "stop-preparing") {
+        await expect(
+          client.request("tools/call", { name: "stop", arguments: { unknown: true } }),
+        ).resolves.toMatchObject({ result: { isError: true } });
+        if (!preparing) expect((await fetch(`http://127.0.0.1:${port}/`)).status).toBe(503);
+        await expect(client.request("tools/call", { name: "stop" })).resolves.toMatchObject({
+          result: { structuredContent: { stopped: true } },
+        });
+        await expect(starting).resolves.toMatchObject({ result: { isError: true } });
+        if (preparing) expect(await readFile(join(directory, "disposed"), "utf8")).toBe("done");
+        await expect(fetch(`http://127.0.0.1:${port}/`)).rejects.toThrow();
+        await writeFile(
+          config,
+          source
+            .replace(preparedService, "")
+            .replace("await new Promise(() => {});", "")
+            .replace("save: () => new Promise(() => {})", "save: async () => {}"),
+        );
+        await expect(
+          client.request("tools/call", { name: "start", arguments: { config, watch } }),
+        ).resolves.toMatchObject({ result: { structuredContent: { ready: true } } });
+        expect(await (await fetch(`http://127.0.0.1:${port}/`)).text()).toBe("ready");
+        child.stdin.end();
+      } else if (signal) child.kill(signal);
       else child.stdin.end();
       await expect.poll(() => child.exitCode, { timeout: watch ? 10000 : 3000, message: stderr }).toBe(0);
       await starting;
@@ -83,5 +124,5 @@ export default { services: { stalled: {
       await rm(directory, { recursive: true, force: true });
     }
   },
-  15000,
+  30000,
 );

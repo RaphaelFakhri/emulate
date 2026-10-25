@@ -67,11 +67,13 @@ Ask your agent: **"List the available emulate services, then start Resend."**
 | Tool | What it does |
 | --- | --- |
 | `list` | Lists available services. |
-| `init` | Creates a config without overwriting an existing file. |
+| `init` | Creates a starter config. Custom scaffolding can update an existing config. |
 | `start` | Starts emulators and returns their URLs once ready. |
 | `stop` | Stops the run owned by this connection. |
 
-Each connection owns one run. Call `stop` before starting another. A failed start can be retried. Closing the connection also stops its emulators. In watch mode, later reload errors go to stderr.
+Each connection owns one run. Call `stop` before starting another; it also cancels a pending start. A failed start can be retried. Closing the connection also stops its emulators. In watch mode, later reload errors go to stderr.
+
+Cancellation cannot undo writes already issued by a custom persistence adapter.
 
 Inputs follow the CLI flags in camelCase: `--base-url` becomes `baseUrl`. Value flags take strings, including `port`; switches take booleans. Your client may prefix tool names with `emulate`.
 

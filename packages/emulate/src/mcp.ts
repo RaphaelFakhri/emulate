@@ -98,21 +98,27 @@ export async function startMcpServer(): Promise<void> {
   const commands = discover(createProgram());
   const stopTool: Tool = {
     name: "stop",
-    description: "Stop the emulator run owned by this MCP connection. A later start can create a new run.",
+    description: "Stop this connection's emulator run, including a pending start. A later start can create a new run.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   };
   let active: Run | undefined;
+  let starting: AbortController | undefined;
+  let calls = 0;
+  let lastStop = 0;
   let pending = Promise.resolve();
   let closing = false;
   async function stop() {
+    const run = active;
+    starting?.abort(new Error("Emulator startup stopped"));
     try {
-      await active?.close();
+      await run?.close();
     } finally {
-      active = undefined;
+      if (active === run) active = undefined;
     }
   }
-  async function call(name: string, args: Record<string, unknown>): Promise<CallToolResult> {
+  async function call(name: string, args: Record<string, unknown>, order: number): Promise<CallToolResult> {
     let started: Run | undefined;
+    let controller: AbortController | undefined;
     try {
       if (closing) throw new Error("MCP server is closing");
       const entry = commands.find((entry) => entry.tool.name === name);
@@ -123,19 +129,24 @@ export async function startMcpServer(): Promise<void> {
         if (typeof value !== binding.type) throw new Error(`${key} must be a ${binding.type}`);
       }
       if (name === "stop") {
+        lastStop = order;
         await stop();
         return result({ stopped: true }, "Stopped the owned emulator run.");
       }
+      if (name === "start" && order < lastStop) throw new Error("Emulator startup stopped");
       if (name === "start" && active)
         throw new Error("An emulator run is already active. Call stop before starting again.");
+      if (name === "start") starting = controller = new AbortController();
       let captured: ReturnType<typeof result> | undefined;
       const program = createProgram({
         nonInteractive: true,
+        signal: controller?.signal,
         output: (data, text) => {
           captured = result(data, text);
         },
         started: (run) => {
           started = run;
+          controller?.signal.throwIfAborted();
           if (closing) throw new Error("MCP server is closing");
           if (active) throw new Error("An emulator run is already active. Call stop before starting again.");
           active = run;
@@ -162,12 +173,20 @@ export async function startMcpServer(): Promise<void> {
         else if (value === !option.negate) argv.push(option.long!);
         else chain[owner].setOptionValueWithSource(key, value, "cli");
       }
-      await program.parseAsync(argv, { from: "user" });
+      const command = program.parseAsync(argv, { from: "user" });
+      if (controller) {
+        const { signal } = controller;
+        await Promise.race([
+          command,
+          new Promise<never>((_resolve, reject) => {
+            signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+          }),
+        ]);
+      } else await command;
       if (name === "start" && !started) throw new Error("Command start returned no owned run");
       if (!captured) throw new Error(`Command ${name} returned no structured result`);
       if (name === "start" && captured.structuredContent?.ready === false)
         throw new Error(String(captured.structuredContent.error ?? "Emulator startup failed"));
-      active = started ?? active;
       return captured;
     } catch (error) {
       let message = error instanceof Error ? error.message : String(error);
@@ -181,6 +200,8 @@ export async function startMcpServer(): Promise<void> {
         }
       }
       return { content: [{ type: "text", text: message }], isError: true };
+    } finally {
+      if (starting === controller) starting = undefined;
     }
   }
   const stdout = process.stdout;
@@ -280,12 +301,14 @@ export async function startMcpServer(): Promise<void> {
             }
             const name = params.name;
             const args = params.arguments ?? {};
-            pending = pending
-              .then(() => call(name, args))
+            const order = ++calls;
+            const response = (name === "stop" ? Promise.resolve() : pending)
+              .then(() => call(name, args, order))
               .then(
                 (result) => send(id, { result }),
                 () => error(id, -32603, "Internal error"),
               );
+            pending = Promise.all([pending, response]).then(() => {});
             return;
           }
           default:

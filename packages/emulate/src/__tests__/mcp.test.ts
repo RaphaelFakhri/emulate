@@ -160,6 +160,49 @@ describe("MCP command adapter", () => {
     expect(starts).toBe(2);
     expect((await call(client, "stop")).isError).not.toBe(true);
     expect(failedClose).toHaveBeenCalledOnce();
+    expect(successfulClose).toHaveBeenCalledOnce();
+  });
+
+  it("cancels starts queued before stop without cancelling a later start", async () => {
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const close = vi.fn(async () => {});
+    const start = vi.fn();
+    vi.mocked(createProgram).mockImplementation((context) => {
+      const program = original.createProgram(context);
+      program.commands
+        .find((command) => command.name() === "list")!
+        .action(async () => {
+          await waiting;
+          context!.output!({ services: [] }, "");
+        });
+      program.commands
+        .find((command) => command.name() === "start")!
+        .action(() => {
+          start();
+          context!.started!({ close });
+          context!.output!({ ready: true }, "");
+        });
+      return program;
+    });
+    const { client } = await connect();
+    const listing = call(client, "list");
+    const cancelled = call(client, "start");
+    const stopping = call(client, "stop");
+    const replacement = call(client, "start");
+    try {
+      expect((await stopping).isError).not.toBe(true);
+    } finally {
+      release();
+    }
+    await listing;
+    expect(message(await cancelled)).toContain("startup stopped");
+    expect((await replacement).structuredContent).toEqual({ ready: true });
+    expect(start).toHaveBeenCalledOnce();
+    await call(client, "stop");
+    expect(close).toHaveBeenCalledOnce();
   });
 
   it("discovers a new nested command and flags and invokes its actual Commander handler", async () => {

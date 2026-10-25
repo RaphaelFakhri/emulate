@@ -2,6 +2,7 @@ import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { projectStartCommand } from "../commands/project-start.js";
 import type { RunMetadata } from "../project-runner.js";
+import * as secretsFile from "../generated-secrets-file.js";
 
 const mocks = vi.hoisted(() => ({
   fork: vi.fn(),
@@ -76,6 +77,71 @@ beforeEach(() => {
 afterEach(async () => {
   await Promise.all(runs.splice(0).map((run) => run.close()));
   vi.restoreAllMocks();
+});
+
+it.each(["start", "watch", "watch-ready"])("rolls back secrets when stopped before readiness: %s", async (mode) => {
+  const watch = mode !== "start";
+  const controller = new AbortController();
+  mocks.fork.mockReturnValue(new Worker(metadata()));
+  let resumeWatch!: () => void;
+  if (mode === "watch-ready")
+    mocks.update.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resumeWatch = resolve;
+        }),
+    );
+  vi.spyOn(secretsFile, "preflightGeneratedSecretsFile").mockResolvedValue({
+    path: "/tmp/stopped-secrets.json",
+    parent: "/tmp",
+    platform: "linux",
+  });
+  let publish!: (file: secretsFile.PublishedGeneratedSecretsFile) => void;
+  vi.spyOn(secretsFile, "publishGeneratedSecretsFile").mockReturnValue(
+    new Promise((resolve) => {
+      publish = resolve;
+    }),
+  );
+  let owned!: (run: { close(): Promise<void> }) => void;
+  const ownership = new Promise<{ close(): Promise<void> }>((resolve) => {
+    owned = resolve;
+  });
+  const starting = projectStartCommand(
+    { port: 4000, service: "resend", watch, generatedSecretsFile: "/tmp/stopped-secrets.json" },
+    { signal: controller.signal, started: owned },
+  ).catch((error) => error);
+  const run = await ownership;
+  runs.push(run);
+  await vi.waitFor(() => expect(secretsFile.publishGeneratedSecretsFile).toHaveBeenCalledOnce());
+  let artifactExists = true;
+  const artifact = {
+    path: "/tmp/stopped-secrets.json",
+    identity: { dev: 1n, ino: 1n },
+    rollback: async () => {
+      artifactExists = false;
+    },
+  };
+  if (mode === "watch-ready") {
+    publish(artifact);
+    await vi.waitFor(() => expect(mocks.update).toHaveBeenCalledOnce());
+  }
+  const stopped = new Error("startup stopped");
+  controller.abort(stopped);
+  let closed = false;
+  const closing = run.close().then(() => {
+    closed = true;
+  });
+  try {
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(closed).toBe(false);
+  } finally {
+    if (mode === "watch-ready") resumeWatch();
+    else publish(artifact);
+  }
+  await closing;
+  expect(artifactExists).toBe(false);
+  if (watch) expect(await starting).toBe(run);
+  else expect(await starting).toBe(stopped);
 });
 
 describe("embedded watch lifecycle", () => {

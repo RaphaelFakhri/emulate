@@ -11,6 +11,7 @@ export interface CommandContext {
   output?: (data: Record<string, unknown>, text: string) => void;
   started?: (run: { close(): Promise<void> }) => void;
   nonInteractive?: boolean;
+  signal?: AbortSignal;
 }
 
 export function createProgram(context: CommandContext = {}): Command {

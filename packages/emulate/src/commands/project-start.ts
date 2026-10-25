@@ -131,47 +131,57 @@ export async function projectStartCommand(
     }
     return run;
   }
-  async function setupPortless(aliases: PortlessAlias[]) {
+  async function setupPortless(aliases: PortlessAlias[], signal = context.signal) {
     await ensurePortless({ throwOnFailure: true, nonInteractive: context.nonInteractive });
+    signal?.throwIfAborted();
     registerAliases(aliases, diagnosticsToStderr);
   }
   const target = options.generatedSecretsFile
     ? await preflightGeneratedSecretsFile(options.generatedSecretsFile)
     : undefined;
+  context.signal?.throwIfAborted();
   let published: PublishedGeneratedSecretsFile | undefined;
   let deliveredSecrets: string | undefined;
   let aliases: PortlessAlias[] = [];
   if (!options.watch) {
-    const run = await prepareProject(options);
-    let managed: { close(): Promise<void> } | undefined;
+    const controller = new AbortController();
+    const signal = context.signal ? AbortSignal.any([context.signal, controller.signal]) : controller.signal;
+    let preparing: ReturnType<typeof prepareProject> | undefined;
+    let publishing: Promise<PublishedGeneratedSecretsFile> | undefined;
     let ready = false;
+    const managed = manageRun(async () => {
+      controller.abort(new Error("Emulator startup stopped"));
+      const run = await preparing?.catch(() => undefined);
+      try {
+        await run?.close();
+      } finally {
+        removeAliases(aliases);
+        if (!ready) await (await publishing)?.rollback();
+      }
+    });
     try {
+      signal.throwIfAborted();
+      context.started?.(managed);
+      const run = await (preparing = prepareProject(options, {}, false, undefined, signal));
+      signal.throwIfAborted();
       if (target)
-        published = await publishGeneratedSecretsFile(target, {
+        published = await (publishing = publishGeneratedSecretsFile(target, {
           schemaVersion: 1,
           generatedSecrets: run.metadata.secrets,
-        });
+        }));
+      signal.throwIfAborted();
       if (options.portless) {
-        await setupPortless(run.metadata.aliases);
+        await setupPortless(run.metadata.aliases, signal);
         aliases = run.metadata.aliases;
       }
-      managed = manageRun(async () => {
-        try {
-          await run.close();
-        } finally {
-          removeAliases(aliases);
-          if (!ready) await published?.rollback();
-        }
-      });
-      context.started?.(managed);
       await run.start();
+      signal.throwIfAborted();
       ready = true;
       const result = readyResult(run.metadata, false, diagnosticsToStderr);
       output(result.data, result.text);
       return managed;
     } catch (error) {
-      await (managed ? managed.close() : run.close()).catch(console.error);
-      if (!managed) removeAliases(aliases);
+      await managed.close().catch(console.error);
       await published?.rollback();
       throw error;
     }
@@ -273,10 +283,10 @@ export async function projectStartCommand(
         if (diagnosticsToStderr) output({ ready: false, watching: true, services: [], error }, error);
       });
       retained = metadata.retained;
-      successful = true;
       failed = false;
       await watcher.update(dependencies, patterns, false);
       if (stopped) return;
+      successful = true;
       const result = readyResult(metadata, true, diagnosticsToStderr);
       currentServices = result.data.services;
       output(result.data, result.text);
@@ -342,6 +352,7 @@ export async function projectStartCommand(
         );
     } finally {
       removeAliases(aliases);
+      if (!successful) await published?.rollback();
     }
   });
   try {
