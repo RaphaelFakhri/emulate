@@ -94,6 +94,7 @@ function result(stdout: string, stderr = "", exitCode: number | null = 0): CallT
     stripVTControlCharacters(text).replace(/https?:\/\/[^\s]+/g, (value) => {
       try {
         const url = new URL(value);
+        const original = url.href;
         url.username = "";
         url.password = "";
         for (const key of [...url.searchParams.keys()])
@@ -103,7 +104,7 @@ function result(stdout: string, stderr = "", exitCode: number | null = 0): CallT
             )
           )
             url.searchParams.set(key, "[redacted]");
-        return url.href;
+        return url.href === original ? value : url.href;
       } catch {
         return value;
       }

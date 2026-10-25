@@ -24,6 +24,7 @@ it.each([
   { watch: false, signal: "stop-preparing" as const },
   { watch: false, signal: "SIGTERM" as const },
   { watch: true, signal: "stop" as const },
+  { watch: true, signal: "stop-preparing" as const },
   { watch: true, signal: undefined },
 ])(
   "closes bound listeners during a stalled startup: watch=$watch, signal=$signal",
@@ -102,13 +103,18 @@ export default { services: { ${preparedService} stalled: {
         new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 50)),
       ]);
       expect(returnedEarly).toBe(false);
+      const queued =
+        signal === "stop" ? client.request("tools/call", { name: "start", arguments: { config, watch } }) : undefined;
+      const stoppingAt = Date.now();
       if (signal === "stop" || signal === "stop-preparing") {
         await expect(
           client.request("tools/call", { name: "stop", arguments: { unknown: true } }),
         ).resolves.toMatchObject({ result: { isError: true } });
         if (!preparing) expect((await fetch(`http://127.0.0.1:${port}/`)).status).toBe(503);
         const stopped = toolResult(await client.request("tools/call", { name: "stop" }));
+        expect(Date.now() - stoppingAt).toBeLessThan(5000);
         expect(stopped.isError).not.toBe(true);
+        if (queued) expect(toolResult(await queued).structuredContent?.stderr).toBe("Emulator startup stopped");
         const cancelled = toolResult((await starting) as JsonRpcMessage);
         expect(cancelled.isError).toBe(true);
         expect(cancelled.structuredContent).toMatchObject({

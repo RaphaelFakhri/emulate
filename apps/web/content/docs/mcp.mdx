@@ -81,6 +81,6 @@ Inputs follow the CLI flags in camelCase: `--base-url` becomes `baseUrl`. Value 
 
 Tools and their inputs come from the shared CLI definitions, so supported commands and options appear automatically. Unsupported command forms fail discovery. The `mcp` command, help, and version flags are excluded.
 
-Results contain the CLI's text output, with stdout, stderr, and the exit code available as structured metadata. `start` returns when its child process reports readiness; its exit code is `null` while running. Commands and startup time out after 30 seconds. A ready emulator keeps running until stopped.
+Results contain the CLI's text output with terminal escapes removed and URL credentials and sensitive query values redacted. Clean URLs retain their original spelling. Stdout, stderr, and the exit code are available as structured metadata. `start` returns when its child process reports readiness; its exit code is `null` while running. Commands and startup time out after 30 seconds. A ready emulator keeps running until stopped.
 
 This local server controls emulators. The website's MCP endpoint only searches documentation.

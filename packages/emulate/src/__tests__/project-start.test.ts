@@ -146,6 +146,47 @@ it.each(["start", "watch", "watch-ready"])("rolls back secrets when stopped befo
   else expect(result).toEqual(new Error("Emulator startup stopped"));
 });
 
+it.each([false, true])("keeps published secrets after a ready run closes: watch=%s", async (watch) => {
+  Object.defineProperty(process, "connected", { value: false, configurable: true });
+  mocks.fork.mockReturnValue(new Worker(metadata()));
+  vi.spyOn(secretsFile, "preflightGeneratedSecretsFile").mockResolvedValue({
+    path: "/tmp/ready-secrets.json",
+    parent: "/tmp",
+    platform: "linux",
+  });
+  let artifactExists = true;
+  vi.spyOn(secretsFile, "publishGeneratedSecretsFile").mockResolvedValue({
+    path: "/tmp/ready-secrets.json",
+    identity: { dev: 1n, ino: 1n },
+    rollback: async () => {
+      artifactExists = false;
+    },
+  });
+  const run = await projectStartCommand({
+    port: 18495,
+    service: "resend",
+    watch,
+    generatedSecretsFile: "/tmp/ready-secrets.json",
+  });
+  expect(console.log).toHaveBeenCalledWith(expect.stringContaining(watch ? "Watching imports" : "Ready."));
+  await run.close();
+  expect(artifactExists).toBe(true);
+});
+
+it("reports a rejected publish only to its caller", async () => {
+  vi.spyOn(secretsFile, "preflightGeneratedSecretsFile").mockResolvedValue({
+    path: "/tmp/failed-secrets.json",
+    parent: "/tmp",
+    platform: "linux",
+  });
+  const error = new Error("publish failed");
+  vi.spyOn(secretsFile, "publishGeneratedSecretsFile").mockRejectedValue(error);
+  await expect(
+    projectStartCommand({ port: 18495, service: "resend", generatedSecretsFile: "/tmp/failed-secrets.json" }),
+  ).rejects.toBe(error);
+  expect(console.error).not.toHaveBeenCalled();
+});
+
 describe("CLI watch lifecycle", () => {
   it("reports a failed initial load and recovers when a missing dependency is created", async () => {
     const broken = new Worker(metadata(), "Missing import");
