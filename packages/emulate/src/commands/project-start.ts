@@ -125,7 +125,7 @@ export async function projectStartCommand(options: ProjectOptions): Promise<{ cl
 
 async function startProject(options: ProjectOptions, signal: AbortSignal, own: (close: () => Promise<void>) => void) {
   async function setupPortless(aliases: PortlessAlias[]) {
-    await ensurePortless({ throwOnFailure: true });
+    await ensurePortless({ throwOnFailure: true, signal });
     signal.throwIfAborted();
     registerAliases(aliases);
   }
