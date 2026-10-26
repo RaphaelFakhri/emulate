@@ -41,9 +41,7 @@ function failPortless(message: string, throwOnFailure: boolean): never {
   process.exit(1);
 }
 
-export async function ensurePortless(
-  options: { throwOnFailure?: boolean; signal?: AbortSignal } = {},
-): Promise<void> {
+export async function ensurePortless(options: { throwOnFailure?: boolean; signal?: AbortSignal } = {}): Promise<void> {
   const throwOnFailure = options.throwOnFailure ?? false;
   if (!hasPortless()) {
     if (!isInteractive()) {
